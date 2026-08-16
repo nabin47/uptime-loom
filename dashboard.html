@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uptime Loom — Insights</title>
+<style>
+  :root{
+    --bg:#0b0d10;
+    --card:#15181d;
+    --card-2:#1a1e24;
+    --line:#22262d;
+    --text:#edeff2;
+    --muted:#8a909c;
+    --faint:#565c67;
+    --accent:#5b8cff;
+    --accent-dim:#5b8cff33;
+    --good:#5bc98a;
+    --warn:#e0a95b;
+    --hm-0:#1c2028;
+    --hm-1:#25406b;
+    --hm-2:#3560a3;
+    --hm-3:#4778d4;
+    --hm-4:#5b8cff;
+    --grid-line:#1e222a;
+    --bar-track:#252b35;
+    --hover-bg:#20242b;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  }
+  html[data-theme="light"]{
+    --bg:#f6f7f9;
+    --card:#ffffff;
+    --card-2:#f0f2f5;
+    --line:#e3e6eb;
+    --text:#1b1f26;
+    --muted:#6b7280;
+    --faint:#9aa1ab;
+    --accent:#3866d6;
+    --accent-dim:#3866d61a;
+    --good:#2f9e63;
+    --warn:#b7791f;
+    --hm-0:#e9ebef;
+    --hm-1:#c9d8f5;
+    --hm-2:#9db8ec;
+    --hm-3:#6e93df;
+    --hm-4:#3866d6;
+    --grid-line:#e9ebef;
+    --bar-track:#eceef2;
+    --hover-bg:#eef1f5;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    min-height:100vh;
+    padding:28px 20px 90px;
+    -webkit-font-smoothing:antialiased;
+    transition:background .15s ease, color .15s ease;
+  }
+  .wrap{max-width:960px;margin:0 auto;}
+
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:22px;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+  .header-right{display:flex;align-items:center;gap:10px;}
+  h1{margin:0;font-size:16px;font-weight:600;letter-spacing:-0.01em;color:var(--text);}
+  .theme-toggle{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:30px;height:30px;
+    padding:0;
+    border-radius:7px;
+    border:1px solid var(--line);
+    background:var(--card-2);
+    color:var(--muted);
+    cursor:pointer;
+  }
+  .theme-toggle:hover{border-color:var(--faint);color:var(--text);}
+  .theme-toggle svg{width:15px;height:15px;}
+  .theme-toggle .icon-sun{display:none;}
+  html[data-theme="light"] .theme-toggle .icon-moon{display:none;}
+  html[data-theme="light"] .theme-toggle .icon-sun{display:block;}
+  .status{
+    font-family:var(--mono);
+    font-size:11px;
+    padding:5px 10px;
+    border-radius:6px;
+    border:1px solid var(--line);
+    color:var(--muted);
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .status.on{color:var(--good);border-color:#2a4a3a;}
+  html[data-theme="light"] .status.on{border-color:#bfe6cf;}
+  .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+  .status.on .dot{animation:pulse 1.8s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+
+  /* Load state */
+  .load-panel{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:14px;
+    margin-bottom:24px;
+  }
+  .load-panel .info{font-family:var(--mono);font-size:12px;color:var(--muted);}
+  .load-panel .info strong{color:var(--text);}
+  button{
+    font-family:var(--sans);
+    font-weight:600;
+    font-size:13px;
+    padding:9px 16px;
+    border-radius:7px;
+    border:1px solid var(--line);
+    cursor:pointer;
+    background:var(--card-2);
+    color:var(--text);
+    transition:border-color .15s ease, background .15s ease;
+  }
+  button:hover{border-color:var(--faint);background:var(--hover-bg,#20242b);}
+  button:active{transform:translateY(1px);}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#0b0d10;}
+  .btn-primary:hover{background:#6f99ff;border-color:#6f99ff;}
+  input[type=file]{display:none;}
+
+  /* Hero: today */
+  .hero{
+    display:grid;
+    grid-template-columns:1.3fr 1fr;
+    gap:16px;
+    margin-bottom:16px;
+  }
+  @media (max-width:700px){.hero{grid-template-columns:1fr;}}
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:20px;
+  }
+  .today-card .label{
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:10px;
+  }
+  .today-big{
+    font-family:var(--mono);
+    font-size:clamp(38px,6vw,52px);
+    font-weight:600;
+    letter-spacing:-0.01em;
+    color:var(--text);
+    line-height:1;
+  }
+  .today-sub{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:8px;}
+  .today-sub .accent{color:var(--accent);}
+
+  .quickstats{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .qstat .n{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--text);}
+  .qstat .l{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:4px;}
+  .qstat .trend{font-family:var(--mono);font-size:11px;margin-top:2px;}
+  .trend.up{color:var(--warn);}
+  .trend.down{color:var(--good);}
+  .trend.flat{color:var(--faint);}
+
+  /* Section grid */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+  @media (max-width:700px){.grid2{grid-template-columns:1fr;}}
+
+  .panel-title{
+    font-size:13px;font-weight:600;margin:0 0 4px;color:var(--text);
+  }
+  .panel-sub{font-family:var(--mono);font-size:11px;color:var(--muted);margin:0 0 16px;}
+
+  /* Trend line chart (SVG) */
+  .trend-chart{width:100%;height:130px;}
+
+  /* Weekday bars */
+  .wk-bars{display:flex;align-items:flex-end;gap:10px;height:110px;}
+  .wk-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;}
+  .wk-bar{width:100%;max-width:28px;background:var(--accent);border-radius:3px 3px 1px 1px;min-height:2px;opacity:.85;}
+  .wk-bar.weekend{background:var(--faint);}
+  .wk-label{font-family:var(--mono);font-size:10px;color:var(--muted);}
+  .wk-val{font-family:var(--mono);font-size:10px;color:var(--text);}
+
+  /* Heatmap (calendar) */
+  .heatmap-scroll{overflow-x:auto;padding-bottom:4px;}
+  .heatmap{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:3px;}
+  .hm-cell{width:11px;height:11px;border-radius:2px;background:var(--hm-0);}
+  .hm-legend{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:10px;}
+  .hm-legend .hm-cell{width:9px;height:9px;}
+
+  /* Arrival/departure scatter-ish */
+  .time-chart{width:100%;height:160px;}
+
+  /* Insight callouts */
+  .insights{display:flex;flex-direction:column;gap:10px;}
+  .insight{
+    display:flex;
+    gap:10px;
+    padding:12px 14px;
+    background:var(--card-2);
+    border-radius:8px;
+    border-left:2px solid var(--accent);
+  }
+  .insight .ic{font-family:var(--mono);font-size:11px;color:var(--accent);flex-shrink:0;padding-top:1px;}
+  .insight p{margin:0;font-size:13px;color:var(--text);line-height:1.5;}
+  .insight span.hl{color:var(--accent);font-weight:600;}
+
+  /* Table */
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px;}
+  th{
+    text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);padding:0 8px 8px;border-bottom:1px solid var(--line);font-weight:600;
+  }
+  td{padding:9px 8px;border-bottom:1px solid #1c1f25;color:var(--text);}
+  tr:last-child td{border-bottom:none;}
+  .dur-cell{color:var(--accent);font-weight:600;}
+  .live-row td{color:var(--good);}
+  .row-day{color:var(--muted);}
+
+  .empty-state{
+    text-align:center;padding:60px 20px;color:var(--muted);font-family:var(--mono);font-size:13px;line-height:1.9;
+  }
+  .empty-state strong{color:var(--text);}
+
+  footer{text-align:center;color:var(--faint);font-family:var(--mono);font-size:10.5px;margin-top:32px;line-height:1.7;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Uptime Loom</h1>
+    <div class="header-right">
+      <div id="statusEl" class="status"><span class="dot"></span><span id="statusText">No data loaded</span></div>
+      <button id="themeToggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle light/dark theme">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="load-panel">
+    <div class="info" id="fileHint">Load <strong>heartbeat_log.csv</strong> from <strong>C:\Users\&lt;you&gt;\UptimeLoom\</strong> &middot; auto-syncs every 15s in Chrome/Edge</div>
+    <div>
+      <button id="loadBtn" class="btn-primary">Load CSV</button>
+      <button id="refreshBtn" style="display:none;">Refresh now</button>
+    </div>
+    <input type="file" id="fileInput" accept=".csv">
+  </div>
+
+  <div id="mainContent" style="display:none;">
+
+    <div class="hero">
+      <div class="card today-card">
+        <p class="label">Today</p>
+        <div id="todayBig" class="today-big">00:00:00</div>
+        <p class="today-sub" id="todaySub">&mdash;</p>
+      </div>
+      <div class="card">
+        <div class="quickstats">
+          <div class="qstat">
+            <div class="n" id="weekTotal">0h</div>
+            <div class="l">This week</div>
+            <div class="trend" id="weekTrend"></div>
+          </div>
+          <div class="qstat">
+            <div class="n" id="avgArrival">--:--</div>
+            <div class="l">Avg. arrival</div>
+            <div class="trend" id="arrivalTrend"></div>
+          </div>
+          <div class="qstat">
+            <div class="n" id="consistency">--</div>
+            <div class="l">Consistency</div>
+            <div class="trend" id="consistencyNote"></div>
+          </div>
+          <div class="qstat">
+            <div class="n" id="streak">0</div>
+            <div class="l">Day streak</div>
+            <div class="trend" id="streakNote"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <p class="panel-title">Daily hours &mdash; last 30 days</p>
+      <p class="panel-sub">7-day rolling average shown as line</p>
+      <svg class="trend-chart" id="trendChart" viewBox="0 0 900 130" preserveAspectRatio="none"></svg>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <p class="panel-title">By day of week</p>
+        <p class="panel-sub">average hours, all-time</p>
+        <div class="wk-bars" id="wkBars"></div>
+      </div>
+      <div class="card">
+        <p class="panel-title">Arrival &amp; departure</p>
+        <p class="panel-sub">last 14 sessions, hour of day</p>
+        <svg class="time-chart" id="timeChart" viewBox="0 0 400 160" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <p class="panel-title">Activity calendar</p>
+      <p class="panel-sub" id="heatmapRange">&mdash;</p>
+      <div class="heatmap-scroll"><div class="heatmap" id="heatmap"></div></div>
+      <div class="hm-legend">
+        <span>Less</span>
+        <div class="hm-cell" style="background:var(--hm-0);"></div>
+        <div class="hm-cell" style="background:var(--hm-1);"></div>
+        <div class="hm-cell" style="background:var(--hm-2);"></div>
+        <div class="hm-cell" style="background:var(--hm-3);"></div>
+        <div class="hm-cell" style="background:var(--hm-4);"></div>
+        <span>More</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <p class="panel-title">Patterns</p>
+      <p class="panel-sub">what the data shows</p>
+      <div class="insights" id="insightsList"></div>
+    </div>
+
+    <div class="card">
+      <p class="panel-title">Session log</p>
+      <p class="panel-sub">most recent first</p>
+      <table>
+        <thead><tr><th>Date</th><th>Day</th><th>In</th><th>Out</th><th>Duration</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <div id="emptyState" class="empty-state">
+    No data loaded yet.<br>
+    Click <strong>"Load CSV"</strong> and select <strong>heartbeat_log.csv</strong><br>
+    from <span id="emptyPath">C:\Users\&lt;you&gt;\UptimeLoom\</span><br><br>
+    A heartbeat script writes a timestamp every minute while your PC is on &mdash;<br>
+    this page reconstructs sessions and analysis from those timestamps.<br><br>
+    In Chrome or Edge, the dashboard will keep syncing automatically after<br>
+    you load the file once &mdash; no need to click Refresh again.
+  </div>
+
+  <footer>Data stays in your browser tab &mdash; nothing is uploaded anywhere.<br>Sessions are inferred from heartbeat gaps &gt; 3 minutes.<br><br>&copy; 2026 Jubair Ahmed Nabin &middot; Uptime Loom</footer>
+
+</div>
+
+<script>
+(function(){
+  const loadBtn = document.getElementById('loadBtn');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const fileInput = document.getElementById('fileInput');
+  const statusEl = document.getElementById('statusEl');
+  const statusText = document.getElementById('statusText');
+  const mainContent = document.getElementById('mainContent');
+  const emptyState = document.getElementById('emptyState');
+  const fileHint = document.getElementById('fileHint');
+
+  let heartbeats = [];
+  let tickInterval = null;
+
+  // ---- theme ----
+  const themeToggle = document.getElementById('themeToggle');
+  function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function applyTheme(theme){
+    document.documentElement.setAttribute('data-theme', theme);
+    try{ localStorage.setItem('officeTimeTheme', theme); }catch(e){}
+    if(heartbeats.length) render(); // repaint SVGs with new theme colors
+  }
+  (function initTheme(){
+    let saved = null;
+    try{ saved = localStorage.getItem('officeTimeTheme'); }catch(e){}
+    const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    applyTheme(saved || (prefersLight ? 'light' : 'dark'));
+  })();
+  themeToggle.addEventListener('click', ()=>{
+    const current = document.documentElement.getAttribute('data-theme');
+    applyTheme(current === 'light' ? 'dark' : 'light');
+  });
+
+  const GAP_THRESHOLD_MS = 3 * 60 * 1000;
+  const STALE_THRESHOLD_MS = 3 * 60 * 1000;
+  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const AUTO_REFRESH_MS = 15 * 1000; // how often to silently re-read the file
+
+  const supportsFSAccess = 'showOpenFilePicker' in window;
+  let fileHandle = null;
+  let autoRefreshInterval = null;
+
+  async function loadViaFSAccess(){
+    try{
+      [fileHandle] = await window.showOpenFilePicker({
+        types: [{ description: 'CSV', accept: {'text/csv': ['.csv']} }]
+      });
+      await readFromHandle(true);
+      startAutoRefresh();
+    }catch(err){
+      // user cancelled the picker -- do nothing
+    }
+  }
+
+  async function readFromHandle(isInitialLoad){
+    if(!fileHandle) return;
+    try{
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+      parseCSV(text);
+      render();
+      if(isInitialLoad){
+        loadBtn.style.display = 'none';
+        refreshBtn.style.display = 'inline-block';
+        refreshBtn.textContent = 'Sync now';
+      }
+      fileHint.innerHTML = `<strong>${file.name}</strong> &middot; live &middot; last synced ${new Date().toLocaleTimeString()}`;
+    }catch(err){
+      fileHint.textContent = 'Lost access to the file -- click Load CSV to reconnect.';
+      stopAutoRefresh();
+      loadBtn.style.display = 'inline-block';
+      refreshBtn.style.display = 'none';
+    }
+  }
+
+  function startAutoRefresh(){
+    stopAutoRefresh();
+    autoRefreshInterval = setInterval(()=> readFromHandle(false), AUTO_REFRESH_MS);
+  }
+  function stopAutoRefresh(){
+    if(autoRefreshInterval){ clearInterval(autoRefreshInterval); autoRefreshInterval = null; }
+  }
+
+  loadBtn.addEventListener('click', ()=>{
+    if(supportsFSAccess){ loadViaFSAccess(); }
+    else { fileInput.click(); }
+  });
+  refreshBtn.addEventListener('click', ()=>{
+    if(supportsFSAccess && fileHandle){ readFromHandle(false); }
+    else { fileInput.click(); }
+  });
+
+  fileInput.addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt)=>{
+      parseCSV(evt.target.result);
+      render();
+      loadBtn.style.display = 'none';
+      refreshBtn.style.display = 'inline-block';
+      fileHint.innerHTML = `Loaded <strong>${file.name}</strong> &middot; updated ${new Date(file.lastModified).toLocaleString()} &middot; <span style="color:var(--warn);">click Refresh to update (this browser doesn't support live sync)</span>`;
+    };
+    reader.readAsText(file);
+  });
+
+  function parseCSV(text){
+    const lines = text.trim().split(/\r?\n/);
+    heartbeats = [];
+    for(let i=1;i<lines.length;i++){
+      const line = lines[i].trim();
+      if(!line) continue;
+      const d = new Date(line.replace(' ','T'));
+      if(!isNaN(d)) heartbeats.push(d);
+    }
+    heartbeats.sort((a,b)=> a - b);
+  }
+
+  function buildSessions(){
+    const sessions = [];
+    if(heartbeats.length === 0) return { sessions, activeStart: null };
+    let segStart = heartbeats[0];
+    let segEnd = heartbeats[0];
+    for(let i=1;i<heartbeats.length;i++){
+      const gap = heartbeats[i] - heartbeats[i-1];
+      if(gap > GAP_THRESHOLD_MS){
+        sessions.push({ start: segStart, end: segEnd });
+        segStart = heartbeats[i];
+      }
+      segEnd = heartbeats[i];
+    }
+    const lastBeat = heartbeats[heartbeats.length-1];
+    const isLive = (Date.now() - lastBeat.getTime()) <= STALE_THRESHOLD_MS;
+    if(isLive){
+      return { sessions, activeStart: segStart };
+    } else {
+      sessions.push({ start: segStart, end: segEnd });
+      return { sessions, activeStart: null };
+    }
+  }
+
+  function fmtHMS(ms){
+    const s = Math.max(0, Math.floor(ms/1000));
+    const h = String(Math.floor(s/3600)).padStart(2,'0');
+    const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+    const sec = String(s%60).padStart(2,'0');
+    return `${h}:${m}:${sec}`;
+  }
+  function fmtH(ms){ return (ms/3600000).toFixed(1)+'h'; }
+  function fmtHM(ms){
+    const totalMin = Math.round(ms/60000);
+    return `${Math.floor(totalMin/60)}h ${totalMin%60}m`;
+  }
+  function fmtClock(hourFloat){
+    if(hourFloat==null || isNaN(hourFloat)) return '--:--';
+    let h = Math.floor(hourFloat);
+    const m = Math.round((hourFloat-h)*60);
+    const ampm = h>=12 ? 'PM':'AM';
+    let h12 = h%12; if(h12===0) h12=12;
+    return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+  }
+  function dateKey(d){ return d.toISOString().slice(0,10); }
+  function hourFloat(d){ return d.getHours() + d.getMinutes()/60; }
+  function stddev(arr){
+    if(arr.length<2) return 0;
+    const mean = arr.reduce((a,b)=>a+b,0)/arr.length;
+    const variance = arr.reduce((a,b)=>a+(b-mean)**2,0)/arr.length;
+    return Math.sqrt(variance);
+  }
+
+  function render(){
+    if(heartbeats.length === 0){
+      mainContent.style.display = 'none';
+      emptyState.style.display = 'block';
+      return;
+    }
+    emptyState.style.display = 'none';
+    mainContent.style.display = 'block';
+
+    const { sessions, activeStart } = buildSessions();
+
+    function totalMsForDay(key){
+      let total = sessions.filter(s=>dateKey(s.start)===key)
+        .reduce((sum,s)=> sum + (s.end - s.start), 0);
+      if(activeStart && dateKey(activeStart) === key){
+        total += (Date.now() - activeStart.getTime());
+      }
+      return total;
+    }
+
+    const now = new Date();
+    const todayKey = dateKey(now);
+    document.getElementById('todayBig').textContent = fmtHMS(totalMsForDay(todayKey));
+
+    // status + today sub
+    if(activeStart){
+      statusEl.className = 'status on';
+      statusText.textContent = 'PC on';
+      document.getElementById('todaySub').innerHTML = `Started <span class="accent">${activeStart.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span> &middot; still running`;
+      if(!tickInterval){
+        tickInterval = setInterval(()=>{ document.getElementById('todayBig').textContent = fmtHMS(totalMsForDay(dateKey(new Date()))); }, 1000);
+      }
+    } else {
+      statusEl.className = 'status';
+      statusText.textContent = 'PC off';
+      document.getElementById('todaySub').textContent = sessions.length ? `Last session ended ${sessions[sessions.length-1].end.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}` : 'No sessions yet';
+      if(tickInterval){ clearInterval(tickInterval); tickInterval = null; }
+    }
+
+    // ---- weekly total + trend vs prior week ----
+    function weekMsEnding(d){
+      let sum = 0;
+      for(let i=0;i<7;i++){
+        const dd = new Date(d); dd.setDate(dd.getDate()-i);
+        sum += totalMsForDay(dateKey(dd));
+      }
+      return sum;
+    }
+    const thisWeekMs = weekMsEnding(now);
+    const lastWeekEnd = new Date(now); lastWeekEnd.setDate(lastWeekEnd.getDate()-7);
+    const lastWeekMs = weekMsEnding(lastWeekEnd);
+    document.getElementById('weekTotal').textContent = fmtH(thisWeekMs);
+    renderTrendPill('weekTrend', thisWeekMs, lastWeekMs, 'vs last wk');
+
+    // ---- arrival time stats ----
+    const allArrivalHours = sessions.map(s=>hourFloat(s.start));
+    const recentArrivals = sessions.slice(-10).map(s=>hourFloat(s.start));
+    const avgArrivalAll = allArrivalHours.length ? allArrivalHours.reduce((a,b)=>a+b,0)/allArrivalHours.length : null;
+    const avgArrivalRecent = recentArrivals.length ? recentArrivals.reduce((a,b)=>a+b,0)/recentArrivals.length : null;
+    document.getElementById('avgArrival').textContent = fmtClock(avgArrivalRecent);
+    if(avgArrivalAll!=null && avgArrivalRecent!=null){
+      const diffMin = Math.round((avgArrivalRecent-avgArrivalAll)*60);
+      const el = document.getElementById('arrivalTrend');
+      if(Math.abs(diffMin) < 5){ el.textContent = 'steady'; el.className='trend flat'; }
+      else if(diffMin < 0){ el.textContent = `${Math.abs(diffMin)}m earlier`; el.className='trend down'; }
+      else { el.textContent = `${diffMin}m later`; el.className='trend up'; }
+    }
+
+    // ---- consistency score (based on stddev of arrival time, last 14) ----
+    const consistencyArr = sessions.slice(-14).map(s=>hourFloat(s.start));
+    const sd = stddev(consistencyArr);
+    let consistencyLabel = '--', consistencyNote='';
+    if(consistencyArr.length>=3){
+      if(sd < 0.4){ consistencyLabel='High'; consistencyNote='tight routine'; }
+      else if(sd < 1.0){ consistencyLabel='Medium'; consistencyNote='some variance'; }
+      else { consistencyLabel='Low'; consistencyNote='irregular hours'; }
+    }
+    document.getElementById('consistency').textContent = consistencyLabel;
+    document.getElementById('consistencyNote').textContent = consistencyNote;
+    document.getElementById('consistencyNote').className = 'trend flat';
+
+    // ---- streak: consecutive days with a session ----
+    const daySet = new Set(sessions.map(s=>dateKey(s.start)));
+    if(activeStart) daySet.add(dateKey(activeStart));
+    let streak = 0;
+    for(let i=0;i<365;i++){
+      const dd = new Date(now); dd.setDate(dd.getDate()-i);
+      const dow = dd.getDay();
+      if(daySet.has(dateKey(dd))){ streak++; }
+      else if(dow!==0 && dow!==6){ break; } // allow weekends to not break streak
+    }
+    document.getElementById('streak').textContent = streak;
+    document.getElementById('streakNote').textContent = streak>0 ? 'consecutive' : '';
+    document.getElementById('streakNote').className = 'trend flat';
+
+    // ---- trend chart: last 30 days + 7-day rolling avg ----
+    renderTrendChart(totalMsForDay, now);
+
+    // ---- weekday bars ----
+    renderWeekdayBars(sessions);
+
+    // ---- arrival/departure time chart ----
+    renderTimeChart(sessions);
+
+    // ---- heatmap ----
+    renderHeatmap(totalMsForDay, now, sessions);
+
+    // ---- insights ----
+    renderInsights(sessions, allArrivalHours, sd, thisWeekMs, lastWeekMs);
+
+    // ---- log table ----
+    renderLog(sessions, activeStart);
+  }
+
+  function renderTrendPill(id, current, prior, label){
+    const el = document.getElementById(id);
+    if(prior<=0){ el.textContent=''; return; }
+    const pct = Math.round(((current-prior)/prior)*100);
+    if(Math.abs(pct) < 3){ el.textContent = `flat ${label}`; el.className='trend flat'; }
+    else if(pct>0){ el.textContent = `+${pct}% ${label}`; el.className='trend up'; }
+    else { el.textContent = `${pct}% ${label}`; el.className='trend down'; }
+  }
+
+  function renderTrendChart(totalMsForDay, now){
+    const days = [];
+    for(let i=29;i>=0;i--){
+      const d = new Date(now); d.setDate(d.getDate()-i);
+      days.push({ key: dateKey(d), ms: totalMsForDay(dateKey(d)) });
+    }
+    // 7-day rolling average
+    const rolling = days.map((d,i)=>{
+      const slice = days.slice(Math.max(0,i-6), i+1);
+      return slice.reduce((a,b)=>a+b.ms,0)/slice.length;
+    });
+
+    const W=900,H=130,pad=6;
+    const maxMs = Math.max(1, ...days.map(d=>d.ms), ...rolling);
+    const barW = (W/days.length)*0.6;
+    const step = W/days.length;
+
+    const barTrack = cssVar('--bar-track');
+    const accent = cssVar('--accent');
+
+    let bars = '';
+    days.forEach((d,i)=>{
+      const h = Math.max(1, (d.ms/maxMs)*(H-pad*2));
+      const x = i*step + (step-barW)/2;
+      const y = H-pad-h;
+      bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${barTrack}"></rect>`;
+    });
+
+    let linePts = rolling.map((v,i)=>{
+      const x = i*step + step/2;
+      const y = H-pad-(v/maxMs)*(H-pad*2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+
+    document.getElementById('trendChart').innerHTML = `
+      ${bars}
+      <polyline points="${linePts}" fill="none" stroke="${accent}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    `;
+  }
+
+  function renderWeekdayBars(sessions){
+    const totals = [0,0,0,0,0,0,0];
+    const counts = [0,0,0,0,0,0,0];
+    sessions.forEach(s=>{
+      const dow = s.start.getDay();
+      totals[dow] += (s.end - s.start);
+      counts[dow] += 1;
+    });
+    const avgs = totals.map((t,i)=> counts[i] ? t/counts[i] : 0);
+    const maxAvg = Math.max(1, ...avgs);
+    const order = [1,2,3,4,5,6,0]; // Mon..Sun
+    const wkBars = document.getElementById('wkBars');
+    wkBars.innerHTML = '';
+    order.forEach(dow=>{
+      const h = Math.max(2, (avgs[dow]/maxAvg)*100);
+      const isWeekend = dow===0 || dow===6;
+      const col = document.createElement('div');
+      col.className = 'wk-col';
+      col.innerHTML = `
+        <div class="wk-val">${avgs[dow]>0 ? (avgs[dow]/3600000).toFixed(1) : ''}</div>
+        <div class="wk-bar${isWeekend?' weekend':''}" style="height:${h}%"></div>
+        <div class="wk-label">${DAY_NAMES[dow]}</div>
+      `;
+      wkBars.appendChild(col);
+    });
+  }
+
+  function renderTimeChart(sessions){
+    const recent = sessions.slice(-14);
+    const W=400,H=160,padL=28,padR=10,padT=10,padB=20;
+    const plotW = W-padL-padR, plotH = H-padT-padB;
+    if(recent.length===0){ document.getElementById('timeChart').innerHTML=''; return; }
+
+    const gridLine = cssVar('--grid-line');
+    const faint = cssVar('--faint');
+    const accent = cssVar('--accent');
+    const barTrack = cssVar('--bar-track');
+
+    let svg = '';
+    // hour gridlines at 6,9,12,15,18,21
+    [6,9,12,15,18,21].forEach(h=>{
+      const y = padT + plotH - (h/24)*plotH;
+      svg += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${gridLine}" stroke-width="1"></line>`;
+      svg += `<text x="2" y="${y+3}" font-size="8" fill="${faint}" font-family="ui-monospace">${h}h</text>`;
+    });
+
+    const stepX = plotW/Math.max(1,recent.length-1||1);
+    recent.forEach((s,i)=>{
+      const x = recent.length===1 ? padL+plotW/2 : padL + i*stepX;
+      const inY = padT + plotH - (hourFloat(s.start)/24)*plotH;
+      const outY = padT + plotH - (hourFloat(s.end)/24)*plotH;
+      svg += `<line x1="${x}" y1="${inY}" x2="${x}" y2="${outY}" stroke="${barTrack}" stroke-width="2"></line>`;
+      svg += `<circle cx="${x}" cy="${inY}" r="3" fill="${accent}"></circle>`;
+      svg += `<circle cx="${x}" cy="${outY}" r="3" fill="${faint}"></circle>`;
+    });
+
+    document.getElementById('timeChart').innerHTML = svg;
+  }
+
+  function renderHeatmap(totalMsForDay, now, sessions){
+    const WEEKS = 18;
+    const totalDays = WEEKS*7;
+    const start = new Date(now); start.setDate(start.getDate()-totalDays+1);
+    // align to Sunday
+    while(start.getDay()!==0){ start.setDate(start.getDate()-1); }
+
+    const cells = [];
+    let maxMs = 1;
+    const cursor = new Date(start);
+    for(let i=0;i<WEEKS*7+7;i++){
+      const key = dateKey(cursor);
+      const ms = totalMsForDay(key);
+      if(cursor <= now){ maxMs = Math.max(maxMs, ms); }
+      cells.push({ key, ms, future: cursor > now });
+      cursor.setDate(cursor.getDate()+1);
+      if(cursor > now && cells.length % 7 === 0) break;
+    }
+
+    const hm0=cssVar('--hm-0'), hm1=cssVar('--hm-1'), hm2=cssVar('--hm-2'), hm3=cssVar('--hm-3'), hm4=cssVar('--hm-4');
+    function colorFor(ms){
+      if(ms<=0) return hm0;
+      const ratio = ms/maxMs;
+      if(ratio<0.25) return hm1;
+      if(ratio<0.5) return hm2;
+      if(ratio<0.75) return hm3;
+      return hm4;
+    }
+
+    const hm = document.getElementById('heatmap');
+    hm.innerHTML = '';
+    cells.forEach(c=>{
+      const div = document.createElement('div');
+      div.className = 'hm-cell';
+      if(!c.future){
+        div.style.background = colorFor(c.ms);
+        div.title = `${c.key}: ${c.ms>0 ? fmtHM(c.ms) : 'no session'}`;
+      } else {
+        div.style.background = 'transparent';
+      }
+      hm.appendChild(div);
+    });
+
+    document.getElementById('heatmapRange').textContent =
+      `${start.toLocaleDateString([], {month:'short',day:'numeric'})} — ${now.toLocaleDateString([], {month:'short',day:'numeric'})}`;
+  }
+
+  function renderInsights(sessions, allArrivalHours, sd, thisWeekMs, lastWeekMs){
+    const list = document.getElementById('insightsList');
+    list.innerHTML = '';
+    const items = [];
+
+    if(sessions.length >= 5){
+      const avgArrival = allArrivalHours.reduce((a,b)=>a+b,0)/allArrivalHours.length;
+      items.push(`Average arrival time is <span class="hl">${fmtClock(avgArrival)}</span> across ${sessions.length} logged sessions.`);
+    }
+
+    if(sd>0 && sessions.length>=5){
+      const sdMin = Math.round(sd*60);
+      if(sd < 0.4){
+        items.push(`Arrival times are highly consistent &mdash; typically within <span class="hl">${sdMin} minutes</span> of the average.`);
+      } else if(sd > 1.0){
+        items.push(`Arrival times vary a lot &mdash; roughly <span class="hl">${sdMin} minutes</span> of spread day to day.`);
+      }
+    }
+
+    // busiest weekday
+    const totals=[0,0,0,0,0,0,0], counts=[0,0,0,0,0,0,0];
+    sessions.forEach(s=>{ const d=s.start.getDay(); totals[d]+=(s.end-s.start); counts[d]++; });
+    const avgs = totals.map((t,i)=>counts[i]?t/counts[i]:0);
+    let maxI=-1; avgs.forEach((v,i)=>{ if(counts[i]>0 && (maxI===-1||v>avgs[maxI])) maxI=i; });
+    let minI=-1; avgs.forEach((v,i)=>{ if(counts[i]>0 && (minI===-1||v<avgs[minI])) minI=i; });
+    if(maxI!==-1 && minI!==-1 && maxI!==minI){
+      items.push(`<span class="hl">${DAY_NAMES[maxI]}</span> tends to be the longest day (avg ${fmtHM(avgs[maxI])}), <span class="hl">${DAY_NAMES[minI]}</span> the shortest (avg ${fmtHM(avgs[minI])}).`);
+    }
+
+    if(lastWeekMs>0){
+      const pct = Math.round(((thisWeekMs-lastWeekMs)/lastWeekMs)*100);
+      if(Math.abs(pct)>=10){
+        items.push(pct>0
+          ? `This week is tracking <span class="hl">${pct}% higher</span> than last week.`
+          : `This week is tracking <span class="hl">${Math.abs(pct)}% lower</span> than last week.`);
+      }
+    }
+
+    // weekend work
+    const weekendSessions = sessions.filter(s=>{ const d=s.start.getDay(); return d===0||d===6; });
+    if(weekendSessions.length>0){
+      items.push(`Logged <span class="hl">${weekendSessions.length}</span> weekend session${weekendSessions.length>1?'s':''} in the tracked period.`);
+    }
+
+    // avg session length
+    if(sessions.length>=3){
+      const avgLen = sessions.reduce((a,s)=>a+(s.end-s.start),0)/sessions.length;
+      items.push(`Average session length is <span class="hl">${fmtHM(avgLen)}</span>.`);
+    }
+
+    if(items.length===0){
+      items.push('Not enough sessions yet for pattern analysis &mdash; check back after a few more days.');
+    }
+
+    items.forEach((text,i)=>{
+      const div = document.createElement('div');
+      div.className = 'insight';
+      div.innerHTML = `<span class="ic">${String(i+1).padStart(2,'0')}</span><p>${text}</p>`;
+      list.appendChild(div);
+    });
+  }
+
+  function renderLog(sessions, activeStart){
+    const logBody = document.getElementById('logBody');
+    logBody.innerHTML = '';
+    if(activeStart){
+      const tr = document.createElement('tr');
+      tr.className = 'live-row';
+      tr.innerHTML = `
+        <td>${activeStart.toLocaleDateString([], {month:'short',day:'numeric'})}</td>
+        <td class="row-day">${DAY_NAMES[activeStart.getDay()]}</td>
+        <td>${activeStart.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
+        <td>running</td>
+        <td class="dur-cell">${fmtHMS(Date.now()-activeStart.getTime())}</td>
+      `;
+      logBody.appendChild(tr);
+    }
+    [...sessions].reverse().forEach(s=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${s.start.toLocaleDateString([], {month:'short',day:'numeric'})}</td>
+        <td class="row-day">${DAY_NAMES[s.start.getDay()]}</td>
+        <td>${s.start.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
+        <td>${s.end.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
+        <td class="dur-cell">${fmtHMS(s.end - s.start)}</td>
+      `;
+      logBody.appendChild(tr);
+    });
+  }
+})();
+</script>
+</body>
+</html>
