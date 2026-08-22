@@ -243,6 +243,89 @@
   .empty-state strong{color:var(--text);}
 
   footer{text-align:center;color:var(--faint);font-family:var(--mono);font-size:10.5px;margin-top:32px;line-height:1.7;}
+
+  /* Corrections UI */
+  .panel-title-row{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px;flex-wrap:wrap;}
+  .panel-title-row .panel-title{margin-bottom:2px;}
+  .panel-title-row .panel-sub{margin-bottom:0;}
+  .btn-secondary{
+    background:transparent;
+    border:1px solid var(--accent);
+    color:var(--accent);
+    font-size:12px;
+    padding:7px 12px;
+    flex-shrink:0;
+  }
+  .btn-secondary:hover{background:var(--accent-dim);border-color:var(--accent);}
+  .table-scroll{overflow-x:auto;}
+  tr.edited-row td{background:var(--accent-dim);}
+  .note-cell{color:var(--muted);font-style:italic;max-width:160px;white-space:normal;}
+  .edited-tag{
+    font-style:normal;
+    font-size:9px;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:var(--accent);
+    background:var(--accent-dim);
+    padding:1px 5px;
+    border-radius:4px;
+    margin-left:4px;
+  }
+  .row-actions{white-space:nowrap;}
+  .row-btn{
+    font-family:var(--sans);
+    font-size:11px;
+    font-weight:500;
+    padding:4px 8px;
+    border-radius:5px;
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--muted);
+    cursor:pointer;
+    margin-right:4px;
+  }
+  .row-btn:hover{border-color:var(--faint);color:var(--text);}
+  .row-btn-danger:hover{border-color:#c96a4d;color:#c96a4d;}
+
+  .modal-backdrop{
+    position:fixed;inset:0;
+    background:rgba(0,0,0,0.55);
+    display:flex;align-items:center;justify-content:center;
+    z-index:100;
+    padding:20px;
+  }
+  .modal-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:22px;
+    width:100%;
+    max-width:360px;
+  }
+  .field-label{
+    display:block;
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:14px 0 6px;
+  }
+  .field-label:first-of-type{margin-top:4px;}
+  .field-optional{text-transform:none;color:var(--faint);}
+  .field-input{
+    width:100%;
+    background:var(--card-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    font-family:var(--sans);
+    font-size:14px;
+    padding:9px 10px;
+    border-radius:7px;
+  }
+  .field-input:focus{outline:none;border-color:var(--accent);}
+  .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;}
+
 </style>
 </head>
 <body>
@@ -343,12 +426,19 @@
     </div>
 
     <div class="card">
-      <p class="panel-title">Session log</p>
-      <p class="panel-sub">most recent first</p>
-      <table>
-        <thead><tr><th>Date</th><th>Day</th><th>In</th><th>Out</th><th>Duration</th></tr></thead>
-        <tbody id="logBody"></tbody>
-      </table>
+      <div class="panel-title-row">
+        <div>
+          <p class="panel-title">Session log</p>
+          <p class="panel-sub">most recent first &middot; corrections apply only in this browser</p>
+        </div>
+        <button id="addSessionBtn" class="btn-secondary">+ Add session</button>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Day</th><th>In</th><th>Out</th><th>Duration</th><th>Note</th><th></th></tr></thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
     </div>
 
   </div>
@@ -363,8 +453,26 @@
     you load the file once &mdash; no need to click Refresh again.
   </div>
 
-  <footer>Data stays in your browser tab &mdash; nothing is uploaded anywhere.<br>Sessions are inferred from heartbeat gaps &gt; 3 minutes.<br><br>&copy; 2026 Jubair Ahmed Nabin &middot; Uptime Loom</footer>
+  <footer>Data stays in your browser tab &mdash; nothing is uploaded anywhere.<br>Sessions are inferred from heartbeat gaps &gt; 3 minutes. Manual corrections are stored locally and never change the original CSV.<br><br>&copy; 2026 Jubair Ahmed Nabin &middot; Uptime Loom</footer>
 
+</div>
+
+<div id="editModal" class="modal-backdrop" style="display:none;">
+  <div class="modal-card">
+    <p id="editModalTitle" class="panel-title">Correct session</p>
+    <form id="editForm">
+      <label class="field-label">Start</label>
+      <input type="datetime-local" id="editStart" class="field-input" required>
+      <label class="field-label">End</label>
+      <input type="datetime-local" id="editEnd" class="field-input" required>
+      <label class="field-label">Note <span class="field-optional">(optional)</span></label>
+      <input type="text" id="editNote" class="field-input" placeholder="e.g. class, offsite meeting" maxlength="80">
+      <div class="modal-actions">
+        <button type="button" id="editCancelBtn" class="btn-secondary">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script>
@@ -508,6 +616,75 @@
     }
   }
 
+  // ---- manual corrections overlay ----
+  // Raw heartbeat-derived sessions are never edited directly. Corrections
+  // are stored separately and applied on top every render, so the original
+  // heartbeat_log.csv always stays the untouched source of truth.
+  const CORRECTIONS_KEY = 'uptimeLoomCorrections';
+
+  function loadCorrections(){
+    try{
+      const raw = localStorage.getItem(CORRECTIONS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){ return []; }
+  }
+  function saveCorrections(list){
+    try{ localStorage.setItem(CORRECTIONS_KEY, JSON.stringify(list)); }catch(e){}
+  }
+  function sessionId(session){
+    // Stable id based on the raw start time -- survives new heartbeats
+    // being appended around it, since a session's start never changes
+    // unless a correction explicitly edits it.
+    return 'sess_' + session.start.getTime();
+  }
+
+  function applyCorrections(rawSessions){
+    const corrections = loadCorrections();
+    const editMap = new Map();   // rawId -> {start,end,note}
+    const deleteSet = new Set(); // rawId
+    const manualAdds = [];       // fully manual sessions
+    const noteOnlyMap = new Map(); // rawId -> note (no time change)
+
+    corrections.forEach(c=>{
+      if(c.type === 'edit') editMap.set(c.rawId, c);
+      else if(c.type === 'delete') deleteSet.add(c.rawId);
+      else if(c.type === 'add') manualAdds.push(c);
+      else if(c.type === 'note') noteOnlyMap.set(c.rawId, c.note);
+    });
+
+    const result = rawSessions
+      .map(s=>{
+        const id = sessionId(s);
+        if(deleteSet.has(id)) return null;
+        const edit = editMap.get(id);
+        if(edit){
+          return {
+            start: new Date(edit.start),
+            end: new Date(edit.end),
+            note: edit.note || '',
+            edited: true,
+            rawId: id
+          };
+        }
+        return { start: s.start, end: s.end, note: noteOnlyMap.get(id) || '', edited: false, rawId: id };
+      })
+      .filter(Boolean);
+
+    manualAdds.forEach(c=>{
+      result.push({
+        start: new Date(c.start),
+        end: new Date(c.end),
+        note: c.note || '',
+        edited: true,
+        manual: true,
+        rawId: c.id
+      });
+    });
+
+    result.sort((a,b)=> a.start - b.start);
+    return result;
+  }
+
   function fmtHMS(ms){
     const s = Math.max(0, Math.floor(ms/1000));
     const h = String(Math.floor(s/3600)).padStart(2,'0');
@@ -546,7 +723,9 @@
     emptyState.style.display = 'none';
     mainContent.style.display = 'block';
 
-    const { sessions, activeStart } = buildSessions();
+    const built = buildSessions();
+    const activeStart = built.activeStart;
+    const sessions = applyCorrections(built.sessions);
 
     function totalMsForDay(key){
       let total = sessions.filter(s=>dateKey(s.start)===key)
@@ -880,20 +1059,137 @@
         <td>${activeStart.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
         <td>running</td>
         <td class="dur-cell">${fmtHMS(Date.now()-activeStart.getTime())}</td>
+        <td></td>
+        <td></td>
       `;
       logBody.appendChild(tr);
     }
     [...sessions].reverse().forEach(s=>{
       const tr = document.createElement('tr');
+      if(s.edited) tr.classList.add('edited-row');
       tr.innerHTML = `
         <td>${s.start.toLocaleDateString([], {month:'short',day:'numeric'})}</td>
         <td class="row-day">${DAY_NAMES[s.start.getDay()]}</td>
         <td>${s.start.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
         <td>${s.end.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
         <td class="dur-cell">${fmtHMS(s.end - s.start)}</td>
+        <td class="note-cell">${s.note ? escapeHtml(s.note) : ''}${s.edited ? ' <span class="edited-tag">edited</span>' : ''}</td>
+        <td class="row-actions">
+          <button class="row-btn" data-action="edit" data-id="${s.rawId}">Edit</button>
+          <button class="row-btn row-btn-danger" data-action="delete" data-id="${s.rawId}">Delete</button>
+        </td>
       `;
       logBody.appendChild(tr);
     });
+
+    logBody.querySelectorAll('button[data-action="edit"]').forEach(btn=>{
+      btn.addEventListener('click', ()=> openEditForm(btn.dataset.id, sessions));
+    });
+    logBody.querySelectorAll('button[data-action="delete"]').forEach(btn=>{
+      btn.addEventListener('click', ()=> deleteSession(btn.dataset.id));
+    });
+  }
+
+  function escapeHtml(str){
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ---- correction editor ----
+  const editModal = document.getElementById('editModal');
+  const editForm = document.getElementById('editForm');
+  let editingRawId = null;
+
+  function toLocalInputValue(d){
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function openEditForm(rawId, currentSessions){
+    const session = currentSessions.find(s=>s.rawId === rawId);
+    if(!session) return;
+    editingRawId = rawId;
+    document.getElementById('editStart').value = toLocalInputValue(session.start);
+    document.getElementById('editEnd').value = toLocalInputValue(session.end);
+    document.getElementById('editNote').value = session.note || '';
+    document.getElementById('editModalTitle').textContent = session.manual ? 'Edit manual session' : 'Correct session';
+    editModal.style.display = 'flex';
+  }
+
+  function openAddForm(){
+    editingRawId = null;
+    const now = new Date();
+    document.getElementById('editStart').value = toLocalInputValue(now);
+    document.getElementById('editEnd').value = toLocalInputValue(now);
+    document.getElementById('editNote').value = '';
+    document.getElementById('editModalTitle').textContent = 'Add manual session';
+    editModal.style.display = 'flex';
+  }
+
+  function closeEditForm(){
+    editModal.style.display = 'none';
+    editingRawId = null;
+  }
+
+  document.getElementById('addSessionBtn').addEventListener('click', openAddForm);
+  document.getElementById('editCancelBtn').addEventListener('click', closeEditForm);
+  editModal.addEventListener('click', (e)=>{ if(e.target === editModal) closeEditForm(); });
+
+  editForm.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const startVal = document.getElementById('editStart').value;
+    const endVal = document.getElementById('editEnd').value;
+    const noteVal = document.getElementById('editNote').value.trim();
+    if(!startVal || !endVal){ return; }
+    const start = new Date(startVal);
+    const end = new Date(endVal);
+    if(end <= start){
+      alert('End time must be after start time.');
+      return;
+    }
+
+    const corrections = loadCorrections();
+    if(editingRawId){
+      // Remove any prior correction for this same id, then add the new one
+      const filtered = corrections.filter(c => c.rawId !== editingRawId && c.id !== editingRawId);
+      filtered.push({
+        type: 'edit',
+        rawId: editingRawId,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        note: noteVal
+      });
+      saveCorrections(filtered);
+    } else {
+      corrections.push({
+        type: 'add',
+        id: 'manual_' + Date.now(),
+        start: start.toISOString(),
+        end: end.toISOString(),
+        note: noteVal
+      });
+      saveCorrections(corrections);
+    }
+    closeEditForm();
+    render();
+  });
+
+  function deleteSession(rawId){
+    if(!confirm('Remove this session from your tracked hours? This only affects the dashboard view -- your original heartbeat log is untouched.')) return;
+    const corrections = loadCorrections();
+    // Drop any existing correction tied to this id, then mark it deleted
+    // (unless it was a pure manual add, in which case just drop it).
+    const wasManualAdd = corrections.some(c => c.type === 'add' && c.id === rawId);
+    let updated;
+    if(wasManualAdd){
+      updated = corrections.filter(c => c.id !== rawId);
+    } else {
+      updated = corrections.filter(c => c.rawId !== rawId);
+      updated.push({ type: 'delete', rawId });
+    }
+    saveCorrections(updated);
+    render();
   }
 })();
 </script>

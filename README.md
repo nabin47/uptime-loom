@@ -15,10 +15,17 @@ No accounts, no cloud, no installs. Your data never leaves your machine.
 ## How it works
 
 A small PowerShell script (`Heartbeat.ps1`) starts automatically when you log
-in to Windows. Every 60 seconds, it appends a timestamp to a CSV file. When
-you shut down or log off, the process simply stops — there's nothing to
-detect, no shutdown hook required. The **last timestamp before a gap** is
-treated as the moment you turned your PC off.
+in to Windows. Every 60 seconds, it appends a timestamp to a CSV file — but
+only if the workstation is currently unlocked. When you shut down, sleep,
+**or lock your screen and step away**, heartbeats simply stop; there's
+nothing to detect and nothing to press. The **last timestamp before a gap**
+is treated as the moment that session ended, and a new session begins the
+next time a heartbeat is written after you're back.
+
+This means stepping away for lunch, a meeting, or anything else — just
+lock your screen (`Win+L`) like you probably already do — and that time is
+automatically excluded from your tracked hours. No pause button, no manual
+subtraction.
 
 The dashboard (`dashboard.html`) is a single self-contained HTML file that
 reads that CSV and reconstructs your work sessions, then renders stats and
@@ -28,10 +35,16 @@ charts. It runs entirely in your browser — nothing is uploaded anywhere.
 Login  ──▶  Heartbeat.ps1 starts (via Startup folder shortcut)
               │
               ▼
-     writes a timestamp every 60s to heartbeat_log.csv
+   writes a timestamp every 60s, only while unlocked
               │
-              ▼
-Shutdown ──▶ process stops, heartbeats stop
+    ┌─────────┼─────────────────┐
+    ▼                           ▼
+Lock screen              Shutdown/sleep
+(Win+L, step away)      heartbeats stop
+heartbeats pause                │
+    │                           │
+    ▼                           ▼
+Unlock ──▶ heartbeats resume, new session begins
               │
               ▼
       open dashboard.html ──▶ load the CSV ──▶ see your stats
@@ -42,6 +55,10 @@ Shutdown ──▶ process stops, heartbeats stop
 ## Features
 
 - **Fully automatic** — no clock-in/clock-out button to forget
+- **Manual corrections** — edit, delete, or add sessions directly in the
+  dashboard for the rare case the automatic tracking needs a fix or a note
+- **Excludes time away automatically** — lock your screen (Win+L) and that
+  time is left out of your tracked hours, no pause button needed
 - **Live auto-sync in Chrome/Edge** — load the CSV once, the dashboard
   silently keeps itself current from then on
 - **No admin rights needed anywhere** — uses the Startup folder, not Task
@@ -93,6 +110,33 @@ Shutdown ──▶ process stops, heartbeats stop
 4. **Done.** From your next login onward, it just works. To start logging
    immediately without restarting, the setup script prints a one-line
    command you can paste to start it right away.
+
+---
+
+## Manual corrections
+
+Automatic tracking gets it right almost all the time, but sometimes you
+need to step in — you turned the PC off for an errand, or a session's
+boundary is slightly off. The session log at the bottom of the dashboard
+lets you:
+
+- **Edit** any session's start/end time and attach a short note
+- **Delete** a session that shouldn't count (e.g. a test run)
+- **Add** a fully manual session for time that was never logged (e.g. the
+  script wasn't running that day)
+
+Corrections are stored separately from your heartbeat data, in your
+browser's local storage — **`heartbeat_log.csv` itself is never modified**.
+This means:
+
+- Corrections apply automatically to every stat, chart, and total on the
+  dashboard, since they all read from the same corrected session list
+- They're specific to the browser you made them in — they won't follow you
+  to a different browser or a different PC
+- Clearing your browser's site data for this page will remove them
+- If you want corrections to persist more durably, export your data
+  regularly (a CSV export button may be a future addition — for now,
+  corrections are a dashboard-only convenience layer)
 
 ---
 
@@ -200,6 +244,18 @@ you're still hitting this often, it may be worth checking your power plan's
 sleep settings, since a script can't write to disk while the PC itself is
 actually asleep.
 
+### Locking my screen doesn't seem to pause tracking
+
+Lock detection uses a standard Windows API call to check whether the
+current desktop is the secure lock-screen desktop. On most machines this
+is reliable, but it can behave inconsistently over Remote Desktop (RDP)
+sessions or on some managed/corporate Windows builds. If you suspect this
+isn't working correctly, check `heartbeat_log.csv` directly — lock the
+screen, wait 2 minutes, unlock, and see whether new timestamps appeared
+during that window. If they did, lock detection isn't working on your
+system and that gap won't be excluded; treat lock-based breaks as
+approximate rather than guaranteed on such systems.
+
 ### Startup shortcut isn't firing at all
 
 Confirm it exists:
@@ -252,8 +308,13 @@ Everything stays local:
 
 ## Limitations
 
-- Tracks **login-to-shutdown** time, not active/idle time — a locked or
-  idle screen still counts as "on"
+- Tracks **unlocked, powered-on** time — an idle-but-unlocked screen (e.g.
+  you're reading something away from the keyboard but never locked it)
+  still counts as active
+- Lock-screen detection relies on a standard Windows API check that is
+  reliable on typical local sessions but can behave inconsistently over
+  Remote Desktop or certain managed/corporate Windows configurations — see
+  Troubleshooting if you suspect this
 - Timestamp resolution is ~1 minute, so session boundaries are accurate to
   within about a minute, not to the second
 - Windows-only (uses PowerShell and the Windows Startup folder)
