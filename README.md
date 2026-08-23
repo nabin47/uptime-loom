@@ -125,33 +125,41 @@ lets you:
 - **Add** a fully manual session for time that was never logged (e.g. the
   script wasn't running that day)
 
-Corrections are stored separately from your heartbeat data, in your
-browser's local storage — **`heartbeat_log.csv` itself is never modified**.
-This means:
+**In Chrome or Edge**, when you load your UptimeLoom folder, corrections
+are saved to a `corrections.json` file in that same folder — right next to
+`heartbeat_log.csv`. This means corrections are:
 
-- Corrections apply automatically to every stat, chart, and total on the
-  dashboard, since they all read from the same corrected session list
-- They're specific to the browser you made them in — they won't follow you
-  to a different browser or a different PC
-- Clearing your browser's site data for this page will remove them
-- If you want corrections to persist more durably, export your data
-  regularly (a CSV export button may be a future addition — for now,
-  corrections are a dashboard-only convenience layer)
+- Durable — they survive closing the tab, clearing browser data, or
+  switching browsers, since they live on disk, not in the browser
+- Portable — open the dashboard on a different machine pointed at the same
+  folder (e.g. via a synced drive) and your corrections come with it
+- Inspectable — it's plain JSON, readable in any text editor if you want
+  to see exactly what's been changed
+
+`heartbeat_log.csv` itself is **never modified** — corrections are always
+a separate overlay applied on top when the dashboard renders, so your raw
+heartbeat data stays intact as ground truth no matter how much you edit.
+
+**In Firefox or other browsers** without File System Access API support,
+corrections fall back to that browser's local storage instead — meaning
+they're specific to that one browser and won't sync anywhere. If you're on
+a browser like this and it matters to you, using Chrome or Edge for the
+dashboard is worth it just for this reason.
 
 ---
 
 ## Using the dashboard
 
 Open `dashboard.html` (found in `C:\Users\<you>\UptimeLoom\`) in any
-browser. Click **Load CSV** and select `heartbeat_log.csv` from the same
-folder.
+browser. Click **Load folder** and select your `UptimeLoom` folder (the
+one containing `heartbeat_log.csv`) — not the CSV file itself.
 
 **In Chrome or Edge**, the dashboard uses the File System Access API to
-keep itself in sync automatically — after you load the file once, it
-silently re-reads it every 15 seconds with no further clicks. You'll see
-"last synced" update in the header. This permission is granted per browser
-session; you'll need to click **Load CSV** again if you close and reopen
-the tab.
+keep itself in sync automatically — after you load the folder once, it
+silently re-reads the CSV every 15 seconds with no further clicks. You'll
+see "last synced" update in the header. This permission is granted per
+browser session; you'll need to click **Load folder** again if you close
+and reopen the tab.
 
 **In Firefox or other browsers** that don't support this API, the
 dashboard falls back to manual refresh — click **Refresh** any time you
@@ -291,9 +299,28 @@ Timestamp
 ```
 
 The dashboard reconstructs sessions by finding gaps larger than 3 minutes
-between consecutive timestamps — a gap means the PC was off in between.
-This format is intentionally simple so you can also open it in Excel or
-process it yourself (Python/pandas, etc.) if you want custom analysis.
+between consecutive timestamps — a gap means the PC was off, asleep, or
+locked in between. This format is intentionally simple so you can also
+open it in Excel or process it yourself (Python/pandas, etc.) if you want
+custom analysis.
+
+`corrections.json` (created automatically the first time you save a
+correction) is a plain array of correction objects:
+
+```json
+[
+  {
+    "type": "edit",
+    "rawId": "sess_1755320400000",
+    "start": "2026-08-16T09:00:00.000Z",
+    "end": "2026-08-16T17:30:00.000Z",
+    "note": "class from 1-2pm"
+  }
+]
+```
+
+`type` is one of `edit`, `delete`, or `add`. You generally shouldn't need
+to hand-edit this file, but it's plain and readable if you ever want to.
 
 ---
 

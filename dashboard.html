@@ -343,9 +343,9 @@
   </header>
 
   <div class="load-panel">
-    <div class="info" id="fileHint">Load <strong>heartbeat_log.csv</strong> from <strong>C:\Users\&lt;you&gt;\UptimeLoom\</strong> &middot; auto-syncs every 15s in Chrome/Edge</div>
+    <div class="info" id="fileHint">Load <strong>your UptimeLoom folder</strong> (e.g. <strong>C:\Users\&lt;you&gt;\UptimeLoom\</strong>) &middot; auto-syncs every 15s in Chrome/Edge</div>
     <div>
-      <button id="loadBtn" class="btn-primary">Load CSV</button>
+      <button id="loadBtn" class="btn-primary">Load folder</button>
       <button id="refreshBtn" style="display:none;">Refresh now</button>
     </div>
     <input type="file" id="fileInput" accept=".csv">
@@ -445,12 +445,14 @@
 
   <div id="emptyState" class="empty-state">
     No data loaded yet.<br>
-    Click <strong>"Load CSV"</strong> and select <strong>heartbeat_log.csv</strong><br>
-    from <span id="emptyPath">C:\Users\&lt;you&gt;\UptimeLoom\</span><br><br>
+    Click <strong>"Load folder"</strong> and select your<br>
+    <span id="emptyPath">UptimeLoom</span> folder (the one containing<br>
+    <strong>heartbeat_log.csv</strong>)<br><br>
     A heartbeat script writes a timestamp every minute while your PC is on &mdash;<br>
     this page reconstructs sessions and analysis from those timestamps.<br><br>
-    In Chrome or Edge, the dashboard will keep syncing automatically after<br>
-    you load the file once &mdash; no need to click Refresh again.
+    In Chrome or Edge, the dashboard keeps syncing automatically after you<br>
+    load the folder once, and any manual corrections you make are saved to<br>
+    <strong>corrections.json</strong> in that same folder.
   </div>
 
   <footer>Data stays in your browser tab &mdash; nothing is uploaded anywhere.<br>Sessions are inferred from heartbeat gaps &gt; 3 minutes. Manual corrections are stored locally and never change the original CSV.<br><br>&copy; 2026 Jubair Ahmed Nabin &middot; Uptime Loom</footer>
@@ -513,28 +515,39 @@
   const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const AUTO_REFRESH_MS = 15 * 1000; // how often to silently re-read the file
 
-  const supportsFSAccess = 'showOpenFilePicker' in window;
-  let fileHandle = null;
+  const supportsFSAccess = 'showDirectoryPicker' in window;
+  let dirHandle = null;
+  let csvFileHandle = null;
+  let correctionsFileHandle = null;
   let autoRefreshInterval = null;
 
   async function loadViaFSAccess(){
     try{
-      [fileHandle] = await window.showOpenFilePicker({
-        types: [{ description: 'CSV', accept: {'text/csv': ['.csv']} }]
-      });
+      dirHandle = await window.showDirectoryPicker();
+      csvFileHandle = await dirHandle.getFileHandle('heartbeat_log.csv');
+      // Corrections file may not exist yet -- create it on first save, not now.
+      try{
+        correctionsFileHandle = await dirHandle.getFileHandle('corrections.json');
+      }catch(e){
+        correctionsFileHandle = null; // doesn't exist yet, that's fine
+      }
       await readFromHandle(true);
       startAutoRefresh();
     }catch(err){
-      // user cancelled the picker -- do nothing
+      if(err && err.name === 'NotFoundError'){
+        alert('Couldn\'t find heartbeat_log.csv in that folder. Select your UptimeLoom folder (the one containing heartbeat_log.csv).');
+      }
+      // otherwise the user just cancelled the picker -- do nothing
     }
   }
 
   async function readFromHandle(isInitialLoad){
-    if(!fileHandle) return;
+    if(!csvFileHandle) return;
     try{
-      const file = await fileHandle.getFile();
+      const file = await csvFileHandle.getFile();
       const text = await file.text();
       parseCSV(text);
+      await loadCorrectionsFromDisk();
       render();
       if(isInitialLoad){
         loadBtn.style.display = 'none';
@@ -543,7 +556,7 @@
       }
       fileHint.innerHTML = `<strong>${file.name}</strong> &middot; live &middot; last synced ${new Date().toLocaleTimeString()}`;
     }catch(err){
-      fileHint.textContent = 'Lost access to the file -- click Load CSV to reconnect.';
+      fileHint.textContent = 'Lost access to the folder -- click Load CSV to reconnect.';
       stopAutoRefresh();
       loadBtn.style.display = 'inline-block';
       refreshBtn.style.display = 'none';
@@ -563,7 +576,7 @@
     else { fileInput.click(); }
   });
   refreshBtn.addEventListener('click', ()=>{
-    if(supportsFSAccess && fileHandle){ readFromHandle(false); }
+    if(supportsFSAccess && csvFileHandle){ readFromHandle(false); }
     else { fileInput.click(); }
   });
 
@@ -573,10 +586,11 @@
     const reader = new FileReader();
     reader.onload = (evt)=>{
       parseCSV(evt.target.result);
+      correctionsCache = loadCorrectionsFromLocalStorage();
       render();
       loadBtn.style.display = 'none';
       refreshBtn.style.display = 'inline-block';
-      fileHint.innerHTML = `Loaded <strong>${file.name}</strong> &middot; updated ${new Date(file.lastModified).toLocaleString()} &middot; <span style="color:var(--warn);">click Refresh to update (this browser doesn't support live sync)</span>`;
+      fileHint.innerHTML = `Loaded <strong>${file.name}</strong> &middot; updated ${new Date(file.lastModified).toLocaleString()} &middot; <span style="color:var(--warn);">click Refresh to update (this browser doesn't support live sync or file-based corrections)</span>`;
     };
     reader.readAsText(file);
   });
@@ -618,19 +632,55 @@
 
   // ---- manual corrections overlay ----
   // Raw heartbeat-derived sessions are never edited directly. Corrections
-  // are stored separately and applied on top every render, so the original
-  // heartbeat_log.csv always stays the untouched source of truth.
+  // are stored separately and applied on top every render.
+  //
+  // When the File System Access API is available (Chrome/Edge), corrections
+  // are saved to corrections.json in the same folder as heartbeat_log.csv --
+  // durable, inspectable, and not tied to one browser. Where it isn't
+  // available, they fall back to this browser's local storage.
   const CORRECTIONS_KEY = 'uptimeLoomCorrections';
+  let correctionsCache = [];
 
-  function loadCorrections(){
+  async function loadCorrectionsFromDisk(){
+    if(!dirHandle) { correctionsCache = loadCorrectionsFromLocalStorage(); return; }
+    try{
+      correctionsFileHandle = await dirHandle.getFileHandle('corrections.json');
+      const file = await correctionsFileHandle.getFile();
+      const text = await file.text();
+      correctionsCache = text.trim() ? JSON.parse(text) : [];
+    }catch(e){
+      // File doesn't exist yet -- no corrections saved so far.
+      correctionsCache = [];
+    }
+  }
+
+  async function saveCorrectionsToDisk(list){
+    correctionsCache = list;
+    if(!dirHandle){ saveCorrectionsToLocalStorage(list); return; }
+    try{
+      correctionsFileHandle = await dirHandle.getFileHandle('corrections.json', { create: true });
+      const writable = await correctionsFileHandle.createWritable();
+      await writable.write(JSON.stringify(list, null, 2));
+      await writable.close();
+    }catch(e){
+      fileHint.innerHTML = `<span style="color:var(--warn);">Couldn't save correction to corrections.json -- saved to this browser instead.</span>`;
+      saveCorrectionsToLocalStorage(list);
+    }
+  }
+
+  function loadCorrectionsFromLocalStorage(){
     try{
       const raw = localStorage.getItem(CORRECTIONS_KEY);
       return raw ? JSON.parse(raw) : [];
     }catch(e){ return []; }
   }
-  function saveCorrections(list){
+  function saveCorrectionsToLocalStorage(list){
     try{ localStorage.setItem(CORRECTIONS_KEY, JSON.stringify(list)); }catch(e){}
   }
+
+  function loadCorrections(){ return correctionsCache; }
+  function saveCorrections(list){ saveCorrectionsToDisk(list); }
+
   function sessionId(session){
     // Stable id based on the raw start time -- survives new heartbeats
     // being appended around it, since a session's start never changes
@@ -1176,7 +1226,7 @@
   });
 
   function deleteSession(rawId){
-    if(!confirm('Remove this session from your tracked hours? This only affects the dashboard view -- your original heartbeat log is untouched.')) return;
+    if(!confirm('Remove this session from your tracked hours? Your original heartbeat log is untouched -- this is saved as a correction.')) return;
     const corrections = loadCorrections();
     // Drop any existing correction tied to this id, then mark it deleted
     // (unless it was a pure manual add, in which case just drop it).
