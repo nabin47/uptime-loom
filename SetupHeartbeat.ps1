@@ -12,6 +12,11 @@ $LogFolder   = "$env:USERPROFILE\UptimeLoom"
 $ScriptPath  = "$LogFolder\Heartbeat.ps1"
 $StartupDir  = [Environment]::GetFolderPath('Startup')
 $ShortcutPath = "$StartupDir\UptimeLoom.lnk"
+$GoingOutPath = "$LogFolder\GoingOut.ps1"
+$GoingOutLinks = @(
+    (Join-Path ([Environment]::GetFolderPath('Desktop'))  'Uptime Loom - Going out.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('Programs')) 'Uptime Loom - Going out.lnk')
+)
 
 function Exit-WithPause([int]$code) {
     # "Run with PowerShell" closes the window immediately; keep it open so
@@ -46,9 +51,15 @@ try {
         Copy-Item -Path $SourceDashboard -Destination "$LogFolder\dashboard.html" -Force
     }
 
+    # 2b. The one-click "Going out" script (lock + mark away)
+    $SourceGoingOut = Join-Path $SourceDir 'GoingOut.ps1'
+    if ((Test-Path $SourceGoingOut) -and -not $sameFolder) {
+        Copy-Item -Path $SourceGoingOut -Destination $GoingOutPath -Force
+    }
+
     # Copies keep the downloaded file's "Mark of the Web"; clear it on the
     # installed copies (you've already chosen to run this setup).
-    foreach ($f in @($ScriptPath, "$LogFolder\dashboard.html")) {
+    foreach ($f in @($ScriptPath, $GoingOutPath, "$LogFolder\dashboard.html")) {
         if (Test-Path $f) { Unblock-File -Path $f -ErrorAction SilentlyContinue }
     }
 
@@ -62,6 +73,24 @@ try {
     $Shortcut.WindowStyle = 7   # 7 = minimized/hidden
     $Shortcut.Description = "Uptime Loom Heartbeat Logger"
     $Shortcut.Save()
+
+    # 4. "Going out" shortcuts on the Desktop and in the Start menu. The
+    #    hotkey (Ctrl+Alt+G) works for shortcuts in either location.
+    if (Test-Path $GoingOutPath) {
+        $hotkeyAssigned = $false
+        foreach ($link in $GoingOutLinks) {
+            $sc = $WScriptShell.CreateShortcut($link)
+            $sc.TargetPath = "powershell.exe"
+            $sc.Arguments  = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$GoingOutPath`""
+            $sc.WorkingDirectory = $LogFolder
+            $sc.WindowStyle = 7
+            $sc.IconLocation = "$env:SystemRoot\System32\shell32.dll,44"
+            $sc.Description = "Lock the PC and stop counting time until you're back (e.g. going off campus)"
+            # Assign the hotkey to only one shortcut so they don't compete.
+            if (-not $hotkeyAssigned) { $sc.Hotkey = "CTRL+ALT+G"; $hotkeyAssigned = $true }
+            $sc.Save()
+        }
+    }
 } catch {
     Write-Host "Setup failed: $($_.Exception.Message)" -ForegroundColor Red
     Exit-WithPause 1
@@ -74,6 +103,10 @@ Write-Host ""
 Write-Host "A shortcut was added to your Startup folder:"
 Write-Host "  $ShortcutPath"
 Write-Host "It will silently start logging heartbeats every time you log in."
+Write-Host ""
+Write-Host "Locking your PC (Win+L) for a class or meeting still counts as office time."
+Write-Host "When you leave and the time should NOT count (e.g. going off campus), use"
+Write-Host "the 'Uptime Loom - Going out' shortcut on your Desktop, or press Ctrl+Alt+G."
 Write-Host ""
 Write-Host "Heartbeats will be saved to:"
 Write-Host "  $LogFolder\heartbeat_log.csv"
@@ -96,5 +129,6 @@ if ($startNow) {
 Write-Host ""
 Write-Host "To remove it later: delete the shortcut at"
 Write-Host "  $ShortcutPath"
+Write-Host "and the 'Uptime Loom - Going out' shortcuts on your Desktop and Start menu."
 
 Exit-WithPause 0

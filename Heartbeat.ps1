@@ -1,10 +1,18 @@
 # Heartbeat.ps1
 # Runs quietly in the background from logon until you shut down/log off.
-# Appends a timestamp to the log every minute (a "heartbeat"). When the PC
-# turns off, or the screen is locked, heartbeats simply stop -- the last one
+# Appends a timestamp to the log every minute (a "heartbeat"), tagged with
+# whether the workstation was unlocked ("active") or locked ("locked").
+# When the PC turns off or sleeps, heartbeats simply stop -- the last one
 # recorded is treated as the moment that session ended (accurate to within
-# ~1 minute). This means locking your screen to step away automatically
-# excludes that time, with no button to press.
+# ~1 minute).
+#
+# Locking the screen does NOT stop the clock by itself: a class or meeting
+# you lock your PC for still counts, as long as you come back and unlock it
+# (the dashboard decides how much locked time to count). To mark that you
+# are leaving -- e.g. going off campus -- run the "Uptime Loom - Going out"
+# shortcut (Ctrl+Alt+G). It locks the PC and creates away.flag; while that
+# flag exists and the PC is locked, no heartbeats are written, so the time
+# is excluded exactly like a shutdown. Unlocking again clears the flag.
 #
 # No admin rights needed anywhere in this script.
 #
@@ -34,8 +42,10 @@ $LogFile   = "$LogFolder\heartbeat_log.csv"
 if (-not (Test-Path $LogFolder)) {
     New-Item -ItemType Directory -Path $LogFolder | Out-Null
 }
+$AwayFlag  = "$LogFolder\away.flag"
+
 if (-not (Test-Path $LogFile)) {
-    "Timestamp" | Out-File -FilePath $LogFile -Encoding UTF8
+    "Timestamp,State" | Out-File -FilePath $LogFile -Encoding UTF8
 }
 
 # --- Lock-state detection ---
@@ -101,13 +111,27 @@ while ($true) {
         # A negative value means the system clock was set backwards; treat
         # that as "due" rather than waiting for the clock to catch up.
         if ($elapsed -ge 60 -or $elapsed -lt 0) {
-            if (-not (Test-WorkstationLocked)) {
+            $locked = Test-WorkstationLocked
+            $away   = Test-Path $AwayFlag
+            if ($away -and -not $locked) {
+                # You're back at the PC: end the "away" period. A short grace
+                # period avoids clearing a flag created a moment before the
+                # lock screen actually appeared.
+                $flagAge = ($nowUtc - (Get-Item $AwayFlag).LastWriteTimeUtc).TotalSeconds
+                if ($flagAge -gt 20 -or $flagAge -lt 0) {
+                    Remove-Item $AwayFlag -Force -ErrorAction SilentlyContinue
+                    $away = $false
+                }
+            }
+            if ($away) {
+                # Marked as away: skip the write. The gap this creates is
+                # picked up by the dashboard exactly like a shutdown gap.
+            } else {
+                $state     = if ($locked) { 'locked' } else { 'active' }
                 $timestamp = $nowUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-                Add-Content -Path $LogFile -Value $timestamp -Encoding UTF8
+                Add-Content -Path $LogFile -Value "$timestamp,$state" -Encoding UTF8
                 $lastWriteUtc = $nowUtc
             }
-            # If locked, we simply skip the write -- the gap this creates
-            # is picked up by the dashboard exactly like a shutdown gap.
         }
     } catch {
         # Swallow transient errors (e.g. file briefly locked) and keep looping.

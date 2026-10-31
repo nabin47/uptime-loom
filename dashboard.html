@@ -325,6 +325,20 @@
   }
   .field-input:focus{outline:none;border-color:var(--accent);}
   .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;}
+  .log-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  tr.away-row td{color:var(--muted);}
+  .away-dur{color:var(--warn);font-weight:600;}
+  .away-tag{
+    font-style:normal;font-size:9px;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--warn);border:1px solid var(--warn);padding:0 5px;border-radius:4px;margin-left:4px;
+  }
+  .setting-row{
+    flex-basis:100%;line-height:2.2;
+    font-family:var(--mono);font-size:11.5px;color:var(--muted);
+    padding-top:12px;border-top:1px solid var(--line);
+  }
+  .setting-row strong{color:var(--text);}
+  .setting-input{width:64px;padding:3px 8px;font-size:13px;font-family:var(--mono);display:inline-block;margin:0 4px;}
 
 </style>
 </head>
@@ -349,6 +363,11 @@
       <button id="refreshBtn" style="display:none;">Refresh now</button>
     </div>
     <input type="file" id="fileInput" accept=".csv">
+    <div class="setting-row">
+      <label for="lockCap">Locked PC (class, meeting) counts up to</label>
+      <input type="number" id="lockCap" class="field-input setting-input" min="0" max="24" step="0.5">
+      <span>h per break, if you come back and unlock &middot; going off campus? use the <strong>Going out</strong> shortcut (Ctrl+Alt+G)</span>
+    </div>
   </div>
 
   <div id="mainContent" style="display:none;">
@@ -431,7 +450,10 @@
           <p class="panel-title">Session log</p>
           <p class="panel-sub" id="logSub">most recent first</p>
         </div>
-        <button id="addSessionBtn" class="btn-secondary">+ Add session</button>
+        <div class="log-actions">
+          <button id="markAwayBtn" class="btn-secondary" title="Exclude a time range, e.g. you went off campus but only locked the PC">&minus; Mark away</button>
+          <button id="addSessionBtn" class="btn-secondary">+ Add session</button>
+        </div>
       </div>
       <div class="table-scroll">
         <table>
@@ -448,14 +470,14 @@
     Click <strong>"Load folder"</strong> and select your<br>
     <span id="emptyPath">UptimeLoom</span> folder (the one containing<br>
     <strong>heartbeat_log.csv</strong>)<br><br>
-    A heartbeat script writes a timestamp every minute while your PC is on &mdash;<br>
+    A heartbeat script writes a timestamp every minute while you're logged in &mdash;<br>
     this page reconstructs sessions and analysis from those timestamps.<br><br>
     In Chrome or Edge, the dashboard keeps syncing automatically after you<br>
     load the folder once, and any manual corrections you make are saved to<br>
     <strong>corrections.json</strong> in that same folder.
   </div>
 
-  <footer>Data stays in your browser tab &mdash; nothing is uploaded anywhere.<br>Sessions are inferred from heartbeat gaps &gt; 3 minutes. Manual corrections are stored locally and never change the original CSV.<br><br>&copy; 2026 Jubair Ahmed Nabin &middot; Uptime Loom</footer>
+  <footer>Data stays in your browser tab &mdash; nothing is uploaded anywhere.<br>Sessions are inferred from heartbeat gaps &gt; 3 minutes; locked breaks count when you come back to the PC. Manual corrections are stored locally and never change the original CSV.<br><br>&copy; 2026 Jubair Ahmed Nabin &middot; Uptime Loom</footer>
 
 </div>
 
@@ -599,12 +621,13 @@
     fileInput.value = '';
   });
 
-  // Timestamps are written as local wall-clock time ("yyyy-MM-dd HH:mm:ss").
-  // Parse them explicitly as local time instead of relying on the browser's
-  // Date string parser, and skip anything that isn't a timestamp (header,
-  // BOM, blank or partially-written lines) rather than assuming line 1 is
-  // always a header.
-  const TS_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/;
+  // Timestamps are written as local wall-clock time ("yyyy-MM-dd HH:mm:ss"),
+  // optionally followed by ",active" or ",locked". Older logs have no state
+  // column -- those heartbeats are treated as active. Parse explicitly as
+  // local time instead of relying on the browser's Date string parser, and
+  // skip anything that isn't a timestamp (header, BOM, blank or
+  // partially-written lines).
+  const TS_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?\s*(?:,\s*"?(\w+)"?)?/;
   function parseCSV(text){
     const lines = text.replace(/^﻿/, '').split(/\r?\n/);
     const parsed = [];
@@ -612,32 +635,101 @@
       const m = TS_RE.exec(raw.trim());
       if(!m) continue;
       const d = new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +(m[6]||0));
-      if(!isNaN(d)) parsed.push(d);
+      if(!isNaN(d)) parsed.push({ t: d, locked: (m[7]||'').toLowerCase() === 'locked' });
     }
-    parsed.sort((a,b)=> a - b);
+    parsed.sort((a,b)=> a.t - b.t);
     heartbeats = parsed;
   }
 
+  // ---- locked-time setting ----
+  // Locking the PC (class, meeting) still counts as office time, but only:
+  //  - when you come back and unlock it afterwards (a lock that runs into a
+  //    shutdown/sleep, or is still going when you've gone home, is dropped),
+  //  - and only up to this many hours per locked stretch.
+  // 0 = never count locked time.
+  const LOCK_CAP_KEY = 'uptimeLoomLockCapHours';
+  const DEFAULT_LOCK_CAP_H = 4;
+  function getLockCapMs(){
+    let h = DEFAULT_LOCK_CAP_H;
+    try{
+      const raw = localStorage.getItem(LOCK_CAP_KEY);
+      if(raw !== null && raw !== '' && !isNaN(+raw)) h = Math.min(24, Math.max(0, +raw));
+    }catch(e){}
+    return h * 3600000;
+  }
+
+  const lockCapInput = document.getElementById('lockCap');
+  lockCapInput.value = String(getLockCapMs() / 3600000);
+  lockCapInput.addEventListener('change', ()=>{
+    let h = parseFloat(lockCapInput.value);
+    if(isNaN(h)) h = DEFAULT_LOCK_CAP_H;
+    h = Math.min(24, Math.max(0, h));
+    lockCapInput.value = String(h);
+    try{ localStorage.setItem(LOCK_CAP_KEY, String(h)); }catch(e){}
+    if(heartbeats.length) render();
+  });
+
   function buildSessions(){
     const sessions = [];
-    if(heartbeats.length === 0) return { sessions, activeStart: null, lastBeat: null };
-    let segStart = heartbeats[0];
-    let segEnd = heartbeats[0];
+    const empty = { sessions, activeStart: null, lastBeat: null, lockedSince: null, lockExpired: false };
+    if(heartbeats.length === 0) return empty;
+    const capMs = getLockCapMs();
+    const nowMs = Date.now();
+    const lastBeat = heartbeats[heartbeats.length-1].t;
+    const isLive = (nowMs - lastBeat.getTime()) <= STALE_THRESHOLD_MS;
+
+    // 1. Split into segments at gaps (PC off, asleep, or marked "going out").
+    const segments = [];
+    let seg = [heartbeats[0]];
     for(let i=1;i<heartbeats.length;i++){
-      const gap = heartbeats[i] - heartbeats[i-1];
-      if(gap > GAP_THRESHOLD_MS){
-        sessions.push({ start: segStart, end: segEnd });
-        segStart = heartbeats[i];
+      if(heartbeats[i].t - heartbeats[i-1].t > GAP_THRESHOLD_MS){ segments.push(seg); seg = []; }
+      seg.push(heartbeats[i]);
+    }
+    segments.push(seg);
+
+    // 2. Within a segment, a session runs from the first unlocked heartbeat
+    //    to the last unlocked one. Locked stretches between two unlocked
+    //    heartbeats count (you came back), unless longer than the cap.
+    //    Leading locked beats (e.g. PC woke at the lock screen) and trailing
+    //    ones (locked, then left) are not counted.
+    let result = { activeStart: null, lockedSince: null, lockExpired: false };
+    segments.forEach((beats, si)=>{
+      let curStart = null, lastActive = null, inLock = false;
+      for(const b of beats){
+        if(!b.locked){
+          if(curStart === null) curStart = b.t;
+          else if(inLock && (b.t - lastActive) > capMs){
+            sessions.push({ start: curStart, end: lastActive });
+            curStart = b.t;
+          }
+          inLock = false;
+          lastActive = b.t;
+        } else if(curStart !== null){
+          inLock = true;
+        }
       }
-      segEnd = heartbeats[i];
+      if(curStart === null) return;
+      const isLastLive = isLive && si === segments.length-1;
+      if(!isLastLive){
+        sessions.push({ start: curStart, end: lastActive });
+        return;
+      }
+      if(!inLock){
+        result.activeStart = curStart;           // unlocked right now
+      } else if(nowMs - lastActive <= capMs){
+        result.activeStart = curStart;           // locked, provisionally counting
+        result.lockedSince = lastActive;
+      } else {
+        sessions.push({ start: curStart, end: lastActive }); // locked too long
+        result.lockedSince = lastActive;
+        result.lockExpired = true;
+      }
+    });
+    // Still sitting at a lock screen that never had an unlock in this segment.
+    if(isLive && heartbeats[heartbeats.length-1].locked && !result.lockedSince && !result.activeStart){
+      result.lockExpired = true;
     }
-    const lastBeat = heartbeats[heartbeats.length-1];
-    const isLive = (Date.now() - lastBeat.getTime()) <= STALE_THRESHOLD_MS;
-    if(isLive){
-      return { sessions, activeStart: segStart, lastBeat };
-    }
-    sessions.push({ start: segStart, end: segEnd });
-    return { sessions, activeStart: null, lastBeat };
+    return { sessions, lastBeat, ...result };
   }
 
   // ---- manual corrections overlay ----
@@ -757,6 +849,8 @@
       else if(c.type === 'delete') deleteSet.add(c.rawId);
       else if(c.type === 'add') manualAdds.push(c);
       else if(c.type === 'note') noteOnlyMap.set(c.rawId, c.note);
+      // 'away' entries are handled by getAwayRanges() -- they subtract time
+      // rather than adding or changing sessions.
     });
 
     const result = rawSessions
@@ -780,6 +874,16 @@
 
     result.sort((a,b)=> a.start - b.start);
     return result;
+  }
+
+  // Time ranges you've marked as "away" (e.g. went off campus but only
+  // locked the PC). Subtracted from every total.
+  function getAwayRanges(){
+    return loadCorrections()
+      .filter(c => c && c.type === 'away')
+      .map(c => { const r = validRange(c); return r ? { ...r, note: String(c.note || ''), id: String(c.id) } : null; })
+      .filter(Boolean)
+      .sort((a,b)=> a.start - b.start);
   }
 
   // ---- time helpers (all local time) ----
@@ -832,6 +936,22 @@
   }
   // Returns fn(fromMs, toMs) -> tracked ms inside that window. Sessions that
   // cross midnight are split across days correctly.
+  // Remove the (merged, sorted) `cuts` from the (merged, sorted) intervals.
+  function subtractIntervals(intervals, cuts){
+    if(!cuts.length) return intervals;
+    const out = [];
+    for(const iv of intervals){
+      let cur = iv.start;
+      for(const c of cuts){
+        if(c.end <= cur || c.start >= iv.end) continue;
+        if(c.start > cur) out.push({ start: cur, end: c.start });
+        cur = Math.max(cur, c.end);
+        if(cur >= iv.end) break;
+      }
+      if(cur < iv.end) out.push({ start: cur, end: iv.end });
+    }
+    return out;
+  }
   function makeRangeCounter(merged){
     return (from, to)=>{
       let sum = 0;
@@ -860,9 +980,11 @@
     const nowMs = now.getTime();
 
     const baseIntervals = sessions.map(s=>({ start: +s.start, end: +s.end }));
+    const awayRanges = getAwayRanges();
+    const awayCuts = mergeIntervals(awayRanges.map(a=>({ start: +a.start, end: +a.end })));
     function counterAt(tMs){
       const list = activeStart ? baseIntervals.concat([{ start: +activeStart, end: tMs }]) : baseIntervals;
-      return makeRangeCounter(mergeIntervals(list));
+      return makeRangeCounter(subtractIntervals(mergeIntervals(list), awayCuts));
     }
     const msInRange = counterAt(nowMs);
     const dayTotal = d => { const s = startOfDay(d); return msInRange(+s, +addDays(s,1)); };
@@ -901,15 +1023,27 @@
     todayBigEl.textContent = fmtHMS(dayTotal(now));
 
     liveTick = null;
+    const lockCapMs = getLockCapMs();
+    const tShort = d => d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
     if(activeStart){
       statusEl.className = 'status on';
-      statusText.textContent = 'Active';
-      document.getElementById('todaySub').innerHTML = `Started <span class="accent">${activeStart.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span> &middot; still running`;
+      const startedHtml = `Started <span class="accent">${tShort(activeStart)}</span>`;
+      if(built.lockedSince){
+        // Locked (class, meeting...) -- counting provisionally until the cap.
+        statusText.textContent = 'Locked · counting';
+        const until = new Date(built.lockedSince.getTime() + lockCapMs);
+        document.getElementById('todaySub').innerHTML = `${startedHtml} &middot; locked since ${tShort(built.lockedSince)} &middot; counts if you unlock by ${tShort(until)}`;
+      } else {
+        statusText.textContent = 'Active';
+        document.getElementById('todaySub').innerHTML = `${startedHtml} &middot; still running`;
+      }
       liveTick = ()=>{
         const t = Date.now();
-        // The machine was locked/shut down while the tab stayed open:
+        // The machine was shut down / went to sleep / you marked yourself as
+        // going out, or a lock ran past the cap, while the tab stayed open:
         // re-render so the status and session list catch up.
         if(t - built.lastBeat.getTime() > STALE_THRESHOLD_MS){ render(); return; }
+        if(built.lockedSince && t - built.lockedSince.getTime() > lockCapMs){ render(); return; }
         const s = startOfDay(new Date(t));
         todayBigEl.textContent = fmtHMS(counterAt(t)(+s, +addDays(s,1)));
         const liveDur = document.getElementById('liveDur');
@@ -918,7 +1052,7 @@
       if(!tickInterval) tickInterval = setInterval(()=>{ if(liveTick) liveTick(); }, 1000);
     } else {
       statusEl.className = 'status';
-      statusText.textContent = 'Not active';
+      statusText.textContent = built.lockExpired ? 'Locked · not counting' : 'Not active';
       document.getElementById('todaySub').textContent = sessions.length ? `Last session ended ${sessions[sessions.length-1].end.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}` : 'No sessions yet';
       if(tickInterval){ clearInterval(tickInterval); tickInterval = null; }
     }
@@ -987,7 +1121,7 @@
     renderTimeChart(workdays.slice(-14));
     renderHeatmap(dayTotal, now);
     renderInsights({ sessions, workdays, activeDays, allArrivalHours, sd, wkAvgs, wkCounts, thisWeekMs, lastWeekMs });
-    renderLog(sessions, activeStart);
+    renderLog(sessions, activeStart, awayRanges);
 
     document.getElementById('logSub').innerHTML = `most recent first &middot; corrections saved ${dirHandle ? 'to <strong>corrections.json</strong>' : 'in this browser only'}`;
   }
@@ -1210,7 +1344,7 @@
     });
   }
 
-  function renderLog(sessions, activeStart){
+  function renderLog(sessions, activeStart, awayRanges){
     const logBody = document.getElementById('logBody');
     logBody.innerHTML = '';
     if(activeStart){
@@ -1227,7 +1361,31 @@
       `;
       logBody.appendChild(tr);
     }
-    [...sessions].reverse().forEach(s=>{
+    // Interleave sessions and "away" entries, most recent first.
+    const rows = sessions.map(s=>({ kind: 'session', at: s.start, s }))
+      .concat(awayRanges.map(a=>({ kind: 'away', at: a.start, a })))
+      .sort((x,y)=> y.at - x.at);
+    rows.forEach(row=>{
+      if(row.kind === 'away'){
+        const a = row.a;
+        const tr = document.createElement('tr');
+        tr.className = 'away-row';
+        tr.innerHTML = `
+          <td>${a.start.toLocaleDateString([], {month:'short',day:'numeric'})}</td>
+          <td class="row-day">${DAY_NAMES[a.start.getDay()]}</td>
+          <td>${a.start.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
+          <td>${a.end.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}${dateKey(a.start) !== dateKey(a.end) ? ' <span class="row-day">(+1d)</span>' : ''}</td>
+          <td class="away-dur">&minus;${fmtHMS(a.end - a.start)}</td>
+          <td class="note-cell">${a.note ? escapeHtml(a.note) : ''} <span class="away-tag">away</span></td>
+          <td class="row-actions">
+            <button class="row-btn" data-action="edit" data-id="${escapeHtml(a.id)}">Edit</button>
+            <button class="row-btn row-btn-danger" data-action="delete" data-id="${escapeHtml(a.id)}">Delete</button>
+          </td>
+        `;
+        logBody.appendChild(tr);
+        return;
+      }
+      const s = row.s;
       const tr = document.createElement('tr');
       if(s.edited) tr.classList.add('edited-row');
       const crossesMidnight = dateKey(s.start) !== dateKey(s.end);
@@ -1247,7 +1405,7 @@
     });
 
     logBody.querySelectorAll('button[data-action="edit"]').forEach(btn=>{
-      btn.addEventListener('click', ()=> openEditForm(btn.dataset.id, sessions));
+      btn.addEventListener('click', ()=> openEditForm(btn.dataset.id, sessions, awayRanges));
     });
     logBody.querySelectorAll('button[data-action="delete"]').forEach(btn=>{
       btn.addEventListener('click', ()=> deleteSession(btn.dataset.id));
@@ -1262,15 +1420,27 @@
   const editModal = document.getElementById('editModal');
   const editForm = document.getElementById('editForm');
   let editingRawId = null;
+  let editingAway = false; // true when adding/editing an "away" range
 
   function toLocalInputValue(d){
     return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   }
 
-  function openEditForm(rawId, currentSessions){
-    const session = currentSessions.find(s=>s.rawId === rawId);
-    if(!session) return;
+  function openEditForm(rawId, currentSessions, awayRanges){
+    const away = (awayRanges || []).find(a=>a.id === rawId);
+    const session = away ? null : currentSessions.find(s=>s.rawId === rawId);
+    if(!session && !away) return;
     editingRawId = rawId;
+    editingAway = !!away;
+    if(away){
+      document.getElementById('editStart').value = toLocalInputValue(away.start);
+      document.getElementById('editEnd').value = toLocalInputValue(away.end);
+      document.getElementById('editNote').value = away.note || '';
+      document.getElementById('editModalTitle').textContent = 'Edit time away';
+      editModal.style.display = 'flex';
+      document.getElementById('editStart').focus();
+      return;
+    }
     document.getElementById('editStart').value = toLocalInputValue(session.start);
     document.getElementById('editEnd').value = toLocalInputValue(session.end);
     document.getElementById('editNote').value = session.note || '';
@@ -1281,6 +1451,7 @@
 
   function openAddForm(){
     editingRawId = null;
+    editingAway = false;
     const now = new Date();
     // Default to the hour leading up to now, so the form is valid as-is.
     document.getElementById('editStart').value = toLocalInputValue(new Date(now.getTime() - 3600000));
@@ -1291,12 +1462,26 @@
     document.getElementById('editStart').focus();
   }
 
+  function openAwayForm(){
+    editingRawId = null;
+    editingAway = true;
+    const now = new Date();
+    document.getElementById('editStart').value = toLocalInputValue(new Date(now.getTime() - 3600000));
+    document.getElementById('editEnd').value = toLocalInputValue(now);
+    document.getElementById('editNote').value = '';
+    document.getElementById('editModalTitle').textContent = 'Mark time away (not counted)';
+    editModal.style.display = 'flex';
+    document.getElementById('editStart').focus();
+  }
+
   function closeEditForm(){
     editModal.style.display = 'none';
     editingRawId = null;
+    editingAway = false;
   }
 
   document.getElementById('addSessionBtn').addEventListener('click', openAddForm);
+  document.getElementById('markAwayBtn').addEventListener('click', openAwayForm);
   document.getElementById('editCancelBtn').addEventListener('click', closeEditForm);
   editModal.addEventListener('click', (e)=>{ if(e.target === editModal) closeEditForm(); });
   document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && editModal.style.display !== 'none') closeEditForm(); });
@@ -1318,7 +1503,15 @@
     const corrections = loadCorrections();
     const fields = { start: start.toISOString(), end: end.toISOString(), note: noteVal };
     let updated;
-    if(editingRawId){
+    if(editingAway){
+      const idx = editingRawId ? corrections.findIndex(c => c && c.type === 'away' && c.id === editingRawId) : -1;
+      if(idx !== -1){
+        updated = corrections.slice();
+        updated[idx] = { ...corrections[idx], ...fields };
+      } else {
+        updated = corrections.concat([{ type: 'away', id: 'away_' + Date.now(), ...fields }]);
+      }
+    } else if(editingRawId){
       const manualIdx = corrections.findIndex(c => c && c.type === 'add' && c.id === editingRawId);
       if(manualIdx !== -1){
         // Editing a manual session: update the 'add' entry in place.
@@ -1344,7 +1537,7 @@
     const corrections = loadCorrections();
     // Drop any existing correction tied to this id, then mark it deleted
     // (unless it was a pure manual add, in which case just drop it).
-    const wasManualAdd = corrections.some(c => c && c.type === 'add' && c.id === rawId);
+    const wasManualAdd = corrections.some(c => c && (c.type === 'add' || c.type === 'away') && c.id === rawId);
     let updated;
     if(wasManualAdd){
       updated = corrections.filter(c => !(c && c.id === rawId));
