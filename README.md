@@ -66,12 +66,13 @@ Unlock ──▶ heartbeats resume, new session begins
 - **Local-only data** — a single CSV file on your own disk
 - **Dashboard includes:**
   - Live "today" timer
-  - This week's total hours, with week-over-week trend
-  - Average arrival time and a consistency score
+  - This week's total hours (Mon → now), compared with last week at the
+    same point
+  - Average arrival time (first session of each day) and a consistency score
   - Current day streak
   - 30-day daily hours trend with 7-day rolling average
-  - Average hours by day of week
-  - Arrival/departure time chart for recent sessions
+  - Average hours per day worked, by day of week
+  - First-in / last-out chart for recent days
   - GitHub-style activity heatmap
   - Auto-generated plain-language insights (busiest day, weekend work
     detected, etc.)
@@ -107,9 +108,9 @@ Unlock ──▶ heartbeats resume, new session begins
    - Add a shortcut to your Startup folder so logging begins automatically
      on every future login
 
-4. **Done.** From your next login onward, it just works. To start logging
-   immediately without restarting, the setup script prints a one-line
-   command you can paste to start it right away.
+4. **Done.** From your next login onward, it just works. The setup script
+   also offers to start logging immediately, so you don't have to log off.
+   (Starting it more than once is harmless — only one copy ever runs.)
 
 ---
 
@@ -218,7 +219,7 @@ Unblock-File "$env:USERPROFILE\UptimeLoom\SetupHeartbeat.ps1"
 Only do this after you've actually read the script — that's what the flag
 is there to make you stop and consider.
 
-### Dashboard shows "off" even though the PC is on
+### Dashboard shows "Not active" even though the PC is on
 
 If you're in Chrome/Edge with live sync active, wait up to 15 seconds for
 the next automatic sync, or click **Sync now**. If you're on a browser
@@ -300,7 +301,10 @@ Timestamp
 
 The dashboard reconstructs sessions by finding gaps larger than 3 minutes
 between consecutive timestamps — a gap means the PC was off, asleep, or
-locked in between. This format is intentionally simple so you can also
+locked in between. Timestamps are local wall-clock time. Daily totals are
+split at local midnight (a session from 11 PM to 1 AM counts one hour on
+each day), and overlapping sessions — e.g. a manual session that overlaps
+logged time — are only counted once. This format is intentionally simple so you can also
 open it in Excel or process it yourself (Python/pandas, etc.) if you want
 custom analysis.
 

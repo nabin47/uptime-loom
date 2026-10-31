@@ -15,6 +15,18 @@
 #   doesn't kill the whole background process.
 # - Lock detection uses a standard Win32 API call (no admin rights, no
 #   external modules) to check whether the workstation is currently locked.
+# - The 60s interval is measured in UTC, so a daylight-saving change (local
+#   clock jumping back an hour) can't pause logging for an hour.
+# - A per-user mutex ensures only one copy runs, even if it's started both
+#   from the Startup shortcut and by hand.
+
+# --- Single instance ---
+$createdNew = $false
+$script:InstanceMutex = New-Object System.Threading.Mutex($true, "Local\UptimeLoomHeartbeat", [ref]$createdNew)
+if (-not $createdNew) {
+    # Another heartbeat logger is already running in this session.
+    exit
+}
 
 $LogFolder = "$env:USERPROFILE\UptimeLoom"
 $LogFile   = "$LogFolder\heartbeat_log.csv"
@@ -28,9 +40,12 @@ if (-not (Test-Path $LogFile)) {
 
 # --- Lock-state detection ---
 # Checks whether the current session's input desktop is the "Winlogon"
-# desktop, which is only active while the workstation is locked. This is
-# the same signal Windows itself uses internally; it requires no special
-# privileges and works entirely within the current user's session.
+# desktop, which is only active while the workstation is locked. We try to
+# open the input desktop and then switch to it: when the user's own desktop
+# is active this is a harmless no-op that succeeds; while the lock screen
+# (a secure desktop) is active, either the open or the switch fails. This
+# requires no special privileges and works entirely within the current
+# user's session.
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -40,17 +55,27 @@ public class SessionState {
     public static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
 
     [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SwitchDesktop(IntPtr hDesktop);
+
+    [DllImport("user32.dll", SetLastError = true)]
     public static extern bool CloseDesktop(IntPtr hDesktop);
 
+    private const uint DESKTOP_SWITCHDESKTOP = 0x0100;
+
     public static bool IsLocked() {
-        IntPtr h = OpenInputDesktop(0, false, 0x0100); // GENERIC_READ-ish access
+        IntPtr h = OpenInputDesktop(0, false, DESKTOP_SWITCHDESKTOP);
         if (h == IntPtr.Zero) {
             // Access denied to the input desktop means we're on a secure
             // desktop (lock screen, UAC prompt, Ctrl+Alt+Del screen, etc.)
             return true;
         }
-        CloseDesktop(h);
-        return false;
+        try {
+            // Opening can succeed on some builds even while locked;
+            // switching to the input desktop cannot.
+            return !SwitchDesktop(h);
+        } finally {
+            CloseDesktop(h);
+        }
     }
 }
 "@ -ErrorAction SilentlyContinue
@@ -65,16 +90,21 @@ function Test-WorkstationLocked {
     }
 }
 
-$lastWrite = Get-Date "1970-01-01"
+# Interval bookkeeping uses UTC so DST changes don't affect it; the value
+# written to the log stays local wall-clock time, as the dashboard expects.
+$lastWriteUtc = [DateTime]::MinValue
 
 while ($true) {
     try {
-        $now = Get-Date
-        if (($now - $lastWrite).TotalSeconds -ge 60) {
+        $nowUtc  = [DateTime]::UtcNow
+        $elapsed = ($nowUtc - $lastWriteUtc).TotalSeconds
+        # A negative value means the system clock was set backwards; treat
+        # that as "due" rather than waiting for the clock to catch up.
+        if ($elapsed -ge 60 -or $elapsed -lt 0) {
             if (-not (Test-WorkstationLocked)) {
-                $timestamp = $now.ToString("yyyy-MM-dd HH:mm:ss")
+                $timestamp = $nowUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
                 Add-Content -Path $LogFile -Value $timestamp -Encoding UTF8
-                $lastWrite = $now
+                $lastWriteUtc = $nowUtc
             }
             # If locked, we simply skip the write -- the gap this creates
             # is picked up by the dashboard exactly like a shutdown gap.
