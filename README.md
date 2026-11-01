@@ -83,18 +83,23 @@ again (up to the cap)        until you unlock
 - **Local-only data** — a single CSV file on your own disk
 - **Dashboard includes:**
   - Live "today" timer
-  - This week's total hours (Mon → now), compared with last week at the
-    same point
-  - Average arrival time (first session of each day) and a consistency score
-  - Current day streak
+  - This week's and this month's totals, each compared with the previous
+    week/month at the same point
+  - Average arrival and departure time (first in / last out each day) and
+    a consistency score
+  - Current day streak (your weekend days don't break it)
   - 30-day daily hours trend with 7-day rolling average
+  - Weekly totals for the last 12 weeks against your weekly target
+  - "When you work" — average minutes in each hour of the day
   - Average hours per day worked, by day of week
   - First-in / last-out chart for recent days
   - GitHub-style activity heatmap
-  - Auto-generated plain-language insights (busiest day, weekend work
-    detected, etc.)
-  - Full session log
+  - Auto-generated plain-language insights (longest day, target hit rate,
+    time spent in locked breaks such as classes, weekend work, etc.)
+  - Session log grouped by day, filterable by period, with CSV export
   - Light and dark mode
+- **Settings** — choose the first day of the week, which days are your
+  weekend, a weekly hour target, and how long a locked break can count
 
 ---
 
@@ -187,6 +192,30 @@ and reopen the tab.
 **In Firefox or other browsers** that don't support this API, the
 dashboard falls back to manual refresh — click **Refresh** any time you
 want current data.
+
+### Settings
+
+Open **Settings** at the top of the dashboard to set:
+
+- **Week starts on** — used for "This week", the weekly chart, the activity
+  calendar's columns and the session log's week filters
+- **Weekend days** — any combination (e.g. Friday + Saturday). Weekend days
+  don't break your streak and are shown in grey in the day-of-week chart
+- **Weekly target** — hours per week (0 turns it off); shown on the weekly
+  chart and in the insights
+- **Locked PC counts up to** — the cap for a single locked break
+
+The week start and weekend default to your browser's region settings.
+Settings are saved in that browser.
+
+### Session log
+
+The log is grouped by day, with each day's total on its header row. Pick a
+period (this/last week, this/last month, last 30 days, all time); only 14
+days are shown at a time, with **Show more** to load further back, so the
+page stays fast however long you've been tracking. **Export** downloads the
+selected period as a CSV (one row per session, plus a daily total) for
+Excel or anywhere else.
 
 ---
 

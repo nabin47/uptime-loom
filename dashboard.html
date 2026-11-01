@@ -332,13 +332,23 @@
     font-style:normal;font-size:9px;letter-spacing:.04em;text-transform:uppercase;
     color:var(--warn);border:1px solid var(--warn);padding:0 5px;border-radius:4px;margin-left:4px;
   }
-  .setting-row{
-    flex-basis:100%;line-height:2.2;
-    font-family:var(--mono);font-size:11.5px;color:var(--muted);
-    padding-top:12px;border-top:1px solid var(--line);
-  }
-  .setting-row strong{color:var(--text);}
-  .setting-input{width:64px;padding:3px 8px;font-size:13px;font-family:var(--mono);display:inline-block;margin:0 4px;}
+  .settings{margin-bottom:16px;padding:14px 20px;}
+  .settings summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--text);list-style-position:inside;}
+  .settings-hint{font-family:var(--mono);font-size:11px;font-weight:400;color:var(--muted);margin-left:6px;}
+  .settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:4px 20px;margin-top:6px;}
+  .settings-note{font-family:var(--mono);font-size:11px;color:var(--muted);margin:14px 0 0;line-height:1.6;}
+  .settings-note strong{color:var(--text);}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{font-family:var(--mono);font-size:11.5px;padding:5px 9px;border-radius:6px;border:1px solid var(--line);color:var(--muted);cursor:pointer;user-select:none;}
+  .chip input{display:none;}
+  .chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+  .link-btn{background:none;border:none;padding:6px 0 0;font-size:11px;font-weight:500;color:var(--accent);cursor:pointer;}
+  .link-btn:hover{background:none;text-decoration:underline;}
+  .log-select{width:auto;padding:6px 8px;font-size:12px;}
+  tr.day-row td{background:var(--card-2);color:var(--text);font-weight:600;font-size:12px;padding:7px 8px;}
+  tr.day-row .day-total{color:var(--accent);}
+  tr.day-row .row-day{font-weight:400;}
+  .log-more-wrap{text-align:center;margin-top:12px;}
 
 </style>
 </head>
@@ -363,12 +373,31 @@
       <button id="refreshBtn" style="display:none;">Refresh now</button>
     </div>
     <input type="file" id="fileInput" accept=".csv">
-    <div class="setting-row">
-      <label for="lockCap">Locked PC (class, meeting) counts up to</label>
-      <input type="number" id="lockCap" class="field-input setting-input" min="0" max="24" step="0.5">
-      <span>h per break, if you come back and unlock &middot; going off campus? use the <strong>Going out</strong> shortcut (Ctrl+Alt+G)</span>
-    </div>
   </div>
+
+  <details class="card settings" id="settingsPanel">
+    <summary>Settings <span class="settings-hint">week start, weekends, weekly target, locked time</span></summary>
+    <div class="settings-grid">
+      <div>
+        <label class="field-label" for="setWeekStart">Week starts on</label>
+        <select id="setWeekStart" class="field-input"></select>
+      </div>
+      <div>
+        <label class="field-label">Weekend days <span class="field-optional">(don't break your streak)</span></label>
+        <div class="chips" id="setWeekend"></div>
+        <button type="button" class="link-btn" id="resetWeekBtn">Use my region's default</button>
+      </div>
+      <div>
+        <label class="field-label" for="setTarget">Weekly target <span class="field-optional">(hours, 0 = off)</span></label>
+        <input type="number" id="setTarget" class="field-input" min="0" max="168" step="0.5">
+      </div>
+      <div>
+        <label class="field-label" for="lockCap">Locked PC counts up to <span class="field-optional">(hours per break)</span></label>
+        <input type="number" id="lockCap" class="field-input" min="0" max="24" step="0.5">
+      </div>
+    </div>
+    <p class="settings-note">Locked time (class, meeting) only counts when you come back and unlock the PC. Going off campus? Use the <strong>Going out</strong> shortcut (Ctrl+Alt+G). Settings are saved in this browser.</p>
+  </details>
 
   <div id="mainContent" style="display:none;">
 
@@ -400,6 +429,16 @@
             <div class="l">Day streak</div>
             <div class="trend" id="streakNote"></div>
           </div>
+          <div class="qstat">
+            <div class="n" id="monthTotal">0h</div>
+            <div class="l">This month</div>
+            <div class="trend" id="monthTrend"></div>
+          </div>
+          <div class="qstat">
+            <div class="n" id="avgDeparture">--:--</div>
+            <div class="l">Avg. departure</div>
+            <div class="trend" id="departureNote"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -408,6 +447,19 @@
       <p class="panel-title">Daily hours &mdash; last 30 days</p>
       <p class="panel-sub">7-day rolling average shown as line</p>
       <svg class="trend-chart" id="trendChart" viewBox="0 0 900 130" preserveAspectRatio="none"></svg>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <p class="panel-title">Weekly hours &mdash; last 12 weeks</p>
+        <p class="panel-sub" id="weeklySub">&mdash;</p>
+        <svg class="time-chart" id="weeklyChart" viewBox="0 0 420 150" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="card">
+        <p class="panel-title">When you work</p>
+        <p class="panel-sub" id="hourSub">&mdash;</p>
+        <svg class="time-chart" id="hourChart" viewBox="0 0 420 150" preserveAspectRatio="none"></svg>
+      </div>
     </div>
 
     <div class="grid2">
@@ -451,16 +503,26 @@
           <p class="panel-sub" id="logSub">most recent first</p>
         </div>
         <div class="log-actions">
+          <select id="logPeriod" class="field-input log-select" aria-label="Period">
+            <option value="thisWeek">This week</option>
+            <option value="lastWeek">Last week</option>
+            <option value="thisMonth">This month</option>
+            <option value="lastMonth">Last month</option>
+            <option value="last30">Last 30 days</option>
+            <option value="all">All time</option>
+          </select>
+          <button id="exportBtn" class="btn-secondary" title="Download the selected period as a CSV file">Export</button>
           <button id="markAwayBtn" class="btn-secondary" title="Exclude a time range, e.g. you went off campus but only locked the PC">&minus; Mark away</button>
           <button id="addSessionBtn" class="btn-secondary">+ Add session</button>
         </div>
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Day</th><th>In</th><th>Out</th><th>Duration</th><th>Note</th><th></th></tr></thead>
+          <thead><tr><th>In</th><th>Out</th><th>Duration</th><th>Note</th><th></th></tr></thead>
           <tbody id="logBody"></tbody>
         </table>
       </div>
+      <div class="log-more-wrap"><button id="logMore" class="btn-secondary" style="display:none;"></button></div>
     </div>
 
   </div>
@@ -641,37 +703,109 @@
     heartbeats = parsed;
   }
 
-  // ---- locked-time setting ----
-  // Locking the PC (class, meeting) still counts as office time, but only:
-  //  - when you come back and unlock it afterwards (a lock that runs into a
-  //    shutdown/sleep, or is still going when you've gone home, is dropped),
-  //  - and only up to this many hours per locked stretch.
-  // 0 = never count locked time.
-  const LOCK_CAP_KEY = 'uptimeLoomLockCapHours';
+  // ---- settings (saved in this browser) ----
+  // weekStart: 0=Sun..6=Sat. weekend: list of weekday numbers. targetH:
+  // weekly hour target (0 = off). lockCapH: how long one locked stretch
+  // (class, meeting) can count -- locked time only counts when you come back
+  // and unlock afterwards (0 = never count locked time).
+  const SETTINGS_KEY = 'uptimeLoomSettings';
+  const LEGACY_LOCK_CAP_KEY = 'uptimeLoomLockCapHours';
   const DEFAULT_LOCK_CAP_H = 4;
-  function getLockCapMs(){
-    let h = DEFAULT_LOCK_CAP_H;
+  const FULL_DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+  function localeWeekDefaults(){
+    // Use the browser's region (e.g. Fri/Sat weekends, Sunday-start weeks)
+    // when it can tell us; otherwise Monday start + Sat/Sun weekend.
     try{
-      const raw = localStorage.getItem(LOCK_CAP_KEY);
-      if(raw !== null && raw !== '' && !isNaN(+raw)) h = Math.min(24, Math.max(0, +raw));
+      const loc = new Intl.Locale(navigator.language || 'en-US');
+      const wi = typeof loc.getWeekInfo === 'function' ? loc.getWeekInfo() : loc.weekInfo;
+      if(wi && wi.firstDay && Array.isArray(wi.weekend)){
+        return { weekStart: wi.firstDay % 7, weekend: wi.weekend.map(d=> d % 7) };
+      }
     }catch(e){}
-    return h * 3600000;
+    return { weekStart: 1, weekend: [0,6] };
   }
 
-  const lockCapInput = document.getElementById('lockCap');
-  lockCapInput.value = String(getLockCapMs() / 3600000);
-  lockCapInput.addEventListener('change', ()=>{
-    let h = parseFloat(lockCapInput.value);
-    if(isNaN(h)) h = DEFAULT_LOCK_CAP_H;
-    h = Math.min(24, Math.max(0, h));
-    lockCapInput.value = String(h);
-    try{ localStorage.setItem(LOCK_CAP_KEY, String(h)); }catch(e){}
-    if(heartbeats.length) render();
+  function loadSettings(){
+    const d = localeWeekDefaults();
+    const out = { weekStart: d.weekStart, weekend: d.weekend, targetH: 40, lockCapH: DEFAULT_LOCK_CAP_H };
+    try{
+      const legacy = localStorage.getItem(LEGACY_LOCK_CAP_KEY);
+      if(legacy !== null && legacy !== '' && !isNaN(+legacy)) out.lockCapH = +legacy;
+      const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+      if(raw && typeof raw === 'object'){
+        if(Number.isInteger(raw.weekStart) && raw.weekStart >= 0 && raw.weekStart <= 6) out.weekStart = raw.weekStart;
+        if(Array.isArray(raw.weekend)) out.weekend = [...new Set(raw.weekend.filter(n=> Number.isInteger(n) && n>=0 && n<=6))];
+        if(typeof raw.targetH === 'number' && raw.targetH >= 0) out.targetH = Math.min(168, raw.targetH);
+        if(typeof raw.lockCapH === 'number' && raw.lockCapH >= 0) out.lockCapH = Math.min(24, raw.lockCapH);
+      }
+    }catch(e){}
+    return out;
+  }
+  let settings = loadSettings();
+  function saveSettings(){
+    try{ localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }catch(e){}
+  }
+  function getLockCapMs(){ return settings.lockCapH * 3600000; }
+  function isWeekend(dow){ return settings.weekend.includes(dow); }
+  // Weekdays in display order, starting from the chosen first day.
+  function orderedDays(){ return [0,1,2,3,4,5,6].map(i=> (settings.weekStart + i) % 7); }
+  function workdaysPerWeek(){ return 7 - settings.weekend.length; }
+
+  // ---- settings panel ----
+  const setWeekStart = document.getElementById('setWeekStart');
+  const setWeekend = document.getElementById('setWeekend');
+  const setTarget = document.getElementById('setTarget');
+  const setLockCap = document.getElementById('lockCap');
+  FULL_DAY_NAMES.forEach((n,i)=>{
+    const o = document.createElement('option'); o.value = String(i); o.textContent = n; setWeekStart.appendChild(o);
   });
+  function paintSettings(){
+    setWeekStart.value = String(settings.weekStart);
+    setWeekend.innerHTML = '';
+    orderedDays().forEach(dow=>{
+      const lab = document.createElement('label');
+      lab.className = 'chip' + (isWeekend(dow) ? ' on' : '');
+      lab.innerHTML = `<input type="checkbox" value="${dow}" ${isWeekend(dow)?'checked':''}>${DAY_NAMES[dow]}`;
+      setWeekend.appendChild(lab);
+    });
+    setTarget.value = String(settings.targetH);
+    setLockCap.value = String(settings.lockCapH);
+  }
+  function settingsChanged(){
+    saveSettings();
+    paintSettings();
+    if(heartbeats.length) render();
+  }
+  setWeekStart.addEventListener('change', ()=>{ settings.weekStart = +setWeekStart.value; settingsChanged(); });
+  setWeekend.addEventListener('change', (e)=>{
+    if(e.target.type !== 'checkbox') return;
+    const dow = +e.target.value;
+    settings.weekend = e.target.checked
+      ? [...new Set(settings.weekend.concat([dow]))]
+      : settings.weekend.filter(d=> d !== dow);
+    settingsChanged();
+  });
+  function numSetting(input, key, max, fallback){
+    input.addEventListener('change', ()=>{
+      let v = parseFloat(input.value);
+      if(isNaN(v)) v = fallback;
+      settings[key] = Math.min(max, Math.max(0, v));
+      settingsChanged();
+    });
+  }
+  numSetting(setTarget, 'targetH', 168, 40);
+  numSetting(setLockCap, 'lockCapH', 24, DEFAULT_LOCK_CAP_H);
+  document.getElementById('resetWeekBtn').addEventListener('click', ()=>{
+    const d = localeWeekDefaults();
+    settings.weekStart = d.weekStart; settings.weekend = d.weekend;
+    settingsChanged();
+  });
+  paintSettings();
 
   function buildSessions(){
     const sessions = [];
-    const empty = { sessions, activeStart: null, lastBeat: null, lockedSince: null, lockExpired: false };
+    const empty = { sessions, activeStart: null, lastBeat: null, lockedSince: null, lockExpired: false, lockedBreaks: [] };
     if(heartbeats.length === 0) return empty;
     const capMs = getLockCapMs();
     const nowMs = Date.now();
@@ -693,6 +827,7 @@
     //    Leading locked beats (e.g. PC woke at the lock screen) and trailing
     //    ones (locked, then left) are not counted.
     let result = { activeStart: null, lockedSince: null, lockExpired: false };
+    const lockedBreaks = []; // locked stretches that counted (you came back)
     segments.forEach((beats, si)=>{
       let curStart = null, lastActive = null, inLock = false;
       for(const b of beats){
@@ -701,6 +836,8 @@
           else if(inLock && (b.t - lastActive) > capMs){
             sessions.push({ start: curStart, end: lastActive });
             curStart = b.t;
+          } else if(inLock){
+            lockedBreaks.push({ start: lastActive, end: b.t });
           }
           inLock = false;
           lastActive = b.t;
@@ -729,7 +866,7 @@
     if(isLive && heartbeats[heartbeats.length-1].locked && !result.lockedSince && !result.activeStart){
       result.lockExpired = true;
     }
-    return { sessions, lastBeat, ...result };
+    return { sessions, lastBeat, lockedBreaks, ...result };
   }
 
   // ---- manual corrections overlay ----
@@ -914,6 +1051,9 @@
   function dateKey(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
   function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
   function addDays(d, n){ const x = new Date(d); x.setDate(x.getDate()+n); return x; }
+  // Start (midnight) of the week containing d, using the chosen first day.
+  function weekStartOf(d){ const x = startOfDay(d); x.setDate(x.getDate() - ((x.getDay() - settings.weekStart + 7) % 7)); return x; }
+  function fmtShortDate(d){ return d.toLocaleDateString([], {month:'short', day:'numeric'}); }
   function hourFloat(d){ return d.getHours() + d.getMinutes()/60; }
   function mean(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
   function stddev(arr){
@@ -1057,11 +1197,10 @@
       if(tickInterval){ clearInterval(tickInterval); tickInterval = null; }
     }
 
-    // ---- this week (Mon -> now) vs the same point last week ----
+    // ---- this week (chosen start day -> now) vs the same point last week ----
     // Comparing a partial week to a full one would always look like a drop,
     // so last week is measured only up to the same weekday and time.
-    const weekStart = startOfDay(now);
-    weekStart.setDate(weekStart.getDate() - ((weekStart.getDay()+6) % 7));
+    const weekStart = weekStartOf(now);
     const thisWeekMs = msInRange(+weekStart, nowMs);
     const lastWeekMs = msInRange(+addDays(weekStart,-7), +addDays(now,-7));
     document.getElementById('weekTotal').textContent = fmtH(thisWeekMs);
@@ -1105,7 +1244,7 @@
       const dow = dd.getDay();
       if(activeKeys.has(dateKey(dd))) streak++;
       else if(i===0) continue;
-      else if(dow!==0 && dow!==6) break;
+      else if(!isWeekend(dow)) break;
     }
     document.getElementById('streak').textContent = streak;
     document.getElementById('streakNote').textContent = streak>0 ? 'consecutive' : '';
@@ -1116,14 +1255,47 @@
     activeDays.forEach(d=>{ const dow = d.day.getDay(); wkTotals[dow] += d.total; wkCounts[dow]++; });
     const wkAvgs = wkTotals.map((t,i)=> wkCounts[i] ? t/wkCounts[i] : 0);
 
+    // ---- this month vs the same point last month ----
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const thisMonthMs = msInRange(+monthStart, nowMs);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth()-1, 1);
+    const prevMonthDays = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    // Same day-of-month and time last month (clamped, e.g. Mar 31 -> Feb 28).
+    const prevSamePoint = new Date(prevMonthStart);
+    prevSamePoint.setDate(Math.min(now.getDate(), prevMonthDays));
+    prevSamePoint.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+    const lastMonthMs = msInRange(+prevMonthStart, +prevSamePoint);
+    document.getElementById('monthTotal').textContent = fmtH(thisMonthMs);
+    renderTrendPill('monthTrend', thisMonthMs, lastMonthMs, 'vs last mo');
+
+    // ---- departure (last end of each finished day) ----
+    const todayKey = dateKey(now);
+    const finishedDays = workdays.filter(w=> !(activeStart && dateKey(w.day) === todayKey));
+    const departureHours = finishedDays.map(w=> dateKey(w.departure) === dateKey(w.day) ? hourFloat(w.departure) : 24);
+    const avgDepartureRecent = mean(departureHours.slice(-10));
+    document.getElementById('avgDeparture').textContent = fmtClock(avgDepartureRecent);
+    document.getElementById('departureNote').textContent = finishedDays.length ? `last ${Math.min(10, finishedDays.length)} days` : '';
+    document.getElementById('departureNote').className = 'trend flat';
+
+    // ---- weekly totals (last 12 weeks) ----
+    const weeks = [];
+    for(let i=11;i>=0;i--){
+      const ws = addDays(weekStart, -7*i);
+      weeks.push({ start: ws, ms: msInRange(+ws, Math.min(nowMs, +addDays(ws,7))), current: i===0 });
+    }
+
+    // Locked breaks that counted, net of anything marked away.
+    const breakCounter = makeRangeCounter(subtractIntervals(
+      mergeIntervals((built.lockedBreaks||[]).map(b=>({ start: +b.start, end: +b.end }))), awayCuts));
+
     renderTrendChart(dayTotal, now);
+    renderWeeklyChart(weeks, thisWeekMs);
+    renderHourProfile(msInRange, activeDays, now);
     renderWeekdayBars(wkAvgs);
     renderTimeChart(workdays.slice(-14));
     renderHeatmap(dayTotal, now);
-    renderInsights({ sessions, workdays, activeDays, allArrivalHours, sd, wkAvgs, wkCounts, thisWeekMs, lastWeekMs });
-    renderLog(sessions, activeStart, awayRanges);
-
-    document.getElementById('logSub').innerHTML = `most recent first &middot; corrections saved ${dirHandle ? 'to <strong>corrections.json</strong>' : 'in this browser only'}`;
+    renderInsights({ sessions, workdays, activeDays, allArrivalHours, departureHours, sd, wkAvgs, wkCounts, thisWeekMs, lastWeekMs, weeks, breakCounter, now });
+    renderLog({ sessions, activeStart, awayRanges, dayTotal, now });
   }
 
   function renderTrendPill(id, current, prior, label){
@@ -1177,19 +1349,83 @@
     `;
   }
 
+  function renderWeeklyChart(weeks, thisWeekMs){
+    const W=420,H=150,padL=4,padR=4,padT=14,padB=18;
+    const plotW=W-padL-padR, plotH=H-padT-padB;
+    const targetMs = settings.targetH * 3600000;
+    const maxMs = Math.max(1, targetMs, ...weeks.map(w=>w.ms));
+    const step = plotW/weeks.length, barW = step*0.62;
+    const accent = cssVar('--accent'), barTrack = cssVar('--bar-track'), faint = cssVar('--faint'), warn = cssVar('--warn'), good = cssVar('--good');
+    let svg = '';
+    weeks.forEach((w,i)=>{
+      const h = Math.max(1, (w.ms/maxMs)*plotH);
+      const x = padL + i*step + (step-barW)/2, y = padT + plotH - h;
+      const hit = targetMs > 0 && w.ms >= targetMs;
+      const fill = w.current ? accent : (hit ? good : barTrack);
+      svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${fill}" opacity="${w.current ? 0.9 : 1}"><title>Week of ${fmtShortDate(w.start)}: ${fmtHM(w.ms)}${w.current ? ' (so far)' : ''}</title></rect>`;
+      if(i % 2 === (weeks.length-1) % 2){
+        svg += `<text x="${(x+barW/2).toFixed(1)}" y="${H-5}" font-size="8" text-anchor="middle" fill="${faint}" font-family="ui-monospace">${fmtShortDate(w.start)}</text>`;
+      }
+    });
+    if(targetMs > 0){
+      const y = padT + plotH - (targetMs/maxMs)*plotH;
+      svg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${warn}" stroke-width="1" stroke-dasharray="4 3"></line>`;
+      svg += `<text x="${W-padR}" y="${(y-3).toFixed(1)}" font-size="8" text-anchor="end" fill="${warn}" font-family="ui-monospace">target ${settings.targetH}h</text>`;
+    }
+    document.getElementById('weeklyChart').innerHTML = svg;
+
+    let sub = `weeks start on ${FULL_DAY_NAMES[settings.weekStart]}`;
+    if(targetMs > 0){
+      const left = targetMs - thisWeekMs;
+      sub += ` &middot; this week ${fmtH(thisWeekMs)} of ${settings.targetH}h` + (left > 0 ? ` (${fmtHM(left)} to go)` : ' &middot; target reached');
+    }
+    document.getElementById('weeklySub').innerHTML = sub;
+  }
+
+  function renderHourProfile(msInRange, activeDays, now){
+    // Average minutes worked in each clock hour, over days worked in the
+    // last 30 days.
+    const cutoff = addDays(startOfDay(now), -29);
+    const days = activeDays.filter(d=> d.day >= cutoff);
+    const mins = new Array(24).fill(0);
+    days.forEach(d=>{
+      for(let h=0;h<24;h++){
+        const a = new Date(d.day); a.setHours(h,0,0,0);
+        const b = new Date(d.day); b.setHours(h+1,0,0,0);
+        mins[h] += msInRange(+a, +b) / 60000;
+      }
+    });
+    const avg = mins.map(m=> days.length ? m/days.length : 0);
+    const W=420,H=150,padT=8,padB=18,plotH=H-padT-padB;
+    const step = W/24, barW = step*0.7;
+    const accent = cssVar('--accent'), faint = cssVar('--faint');
+    let svg = '';
+    avg.forEach((m,h)=>{
+      const bh = Math.max(m>0 ? 1 : 0, (m/60)*plotH);
+      const x = h*step + (step-barW)/2, y = padT + plotH - bh;
+      svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="${accent}" opacity="${(0.35 + 0.65*Math.min(1, m/60)).toFixed(2)}"><title>${pad2(h)}:00–${pad2((h+1)%24)}:00 · avg ${Math.round(m)} min</title></rect>`;
+      if(h % 3 === 0) svg += `<text x="${(x+barW/2).toFixed(1)}" y="${H-5}" font-size="8" text-anchor="middle" fill="${faint}" font-family="ui-monospace">${h}h</text>`;
+    });
+    document.getElementById('hourChart').innerHTML = svg;
+    let peak = -1; avg.forEach((m,h)=>{ if(m>0 && (peak===-1 || m>avg[peak])) peak = h; });
+    document.getElementById('hourSub').textContent = days.length
+      ? `avg minutes per hour, ${days.length} day${days.length>1?'s':''} worked in the last 30 days${peak>=0 ? ` · busiest ${pad2(peak)}:00–${pad2((peak+1)%24)}:00` : ''}`
+      : 'no tracked days in the last 30 days';
+  }
+
   function renderWeekdayBars(avgs){
     const maxAvg = Math.max(1, ...avgs);
-    const order = [1,2,3,4,5,6,0]; // Mon..Sun
+    const order = orderedDays();
     const wkBars = document.getElementById('wkBars');
     wkBars.innerHTML = '';
     order.forEach(dow=>{
       const h = Math.max(2, (avgs[dow]/maxAvg)*100);
-      const isWeekend = dow===0 || dow===6;
+      const weekend = isWeekend(dow);
       const col = document.createElement('div');
       col.className = 'wk-col';
       col.innerHTML = `
         <div class="wk-val">${avgs[dow]>0 ? (avgs[dow]/3600000).toFixed(1) : ''}</div>
-        <div class="wk-bar${isWeekend?' weekend':''}" style="height:${h}%"></div>
+        <div class="wk-bar${weekend?' weekend':''}" style="height:${h}%"></div>
         <div class="wk-label">${DAY_NAMES[dow]}</div>
       `;
       wkBars.appendChild(col);
@@ -1236,8 +1472,8 @@
     const WEEKS = 18;
     const today = startOfDay(now);
     const start = addDays(today, -(WEEKS*7)+1);
-    // align to Sunday
-    while(start.getDay()!==0){ start.setDate(start.getDate()-1); }
+    // align to the chosen first day of the week (each column = one week)
+    while(start.getDay()!==settings.weekStart){ start.setDate(start.getDate()-1); }
 
     const cells = [];
     let maxMs = 1;
@@ -1277,7 +1513,7 @@
       `${start.toLocaleDateString([], {month:'short',day:'numeric'})} — ${now.toLocaleDateString([], {month:'short',day:'numeric'})}`;
   }
 
-  function renderInsights({ sessions, workdays, activeDays, allArrivalHours, sd, wkAvgs, wkCounts, thisWeekMs, lastWeekMs }){
+  function renderInsights({ sessions, workdays, activeDays, allArrivalHours, departureHours, sd, wkAvgs, wkCounts, thisWeekMs, lastWeekMs, weeks, breakCounter, now }){
     const list = document.getElementById('insightsList');
     list.innerHTML = '';
     const items = [];
@@ -1295,9 +1531,37 @@
       }
     }
 
+    if(departureHours.length >= 5){
+      items.push(`You usually finish around <span class="hl">${fmtClock(mean(departureHours))}</span>.`);
+    }
+
     if(activeDays.length >= 3){
       const avgDay = mean(activeDays.map(d=>d.total));
       items.push(`On days you work, you average <span class="hl">${fmtHM(avgDay)}</span> of tracked time.`);
+      const best = activeDays.reduce((a,b)=> b.total > a.total ? b : a);
+      items.push(`Longest day so far: <span class="hl">${best.day.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric', year:'numeric'})}</span> (${fmtHM(best.total)}).`);
+    }
+
+    // Weekly target, over completed weeks (the current one isn't finished).
+    const fullWeeks = weeks.filter(w=> !w.current && w.start >= startOfDay(activeDays.length ? activeDays[0].day : now));
+    if(fullWeeks.length >= 2){
+      const avgWeek = mean(fullWeeks.map(w=>w.ms));
+      let t = `Across the last ${fullWeeks.length} full weeks you averaged <span class="hl">${fmtH(avgWeek)}</span> a week`;
+      if(settings.targetH > 0){
+        const hit = fullWeeks.filter(w=> w.ms >= settings.targetH*3600000).length;
+        t += ` and reached your ${settings.targetH}h target in <span class="hl">${hit} of ${fullWeeks.length}</span>`;
+      }
+      items.push(t + '.');
+    }
+
+    // Locked breaks (classes, meetings) that counted, last 30 days.
+    const from30 = +addDays(startOfDay(now), -29), to30 = +now;
+    const breaks30 = breakCounter(from30, to30);
+    if(breaks30 >= 60000){
+      const days30 = activeDays.filter(d=> +d.day >= from30);
+      const total30 = days30.reduce((a,d)=> a + d.total, 0);
+      const share = total30 ? Math.round(breaks30/total30*100) : 0;
+      items.push(`Locked breaks (classes, meetings) were <span class="hl">${fmtHM(breaks30)}</span> of your tracked time in the last 30 days (${share}%${days30.length ? `, about ${fmtHM(breaks30/days30.length)} per day worked` : ''}).`);
     }
 
     // longest / shortest weekday (by average daily total)
@@ -1321,7 +1585,7 @@
     }
 
     // weekend work
-    const weekendDays = activeDays.filter(d=>{ const w=d.day.getDay(); return w===0||w===6; }).length;
+    const weekendDays = activeDays.filter(d=> isWeekend(d.day.getDay())).length;
     if(weekendDays>0){
       items.push(`Worked on <span class="hl">${weekendDays}</span> weekend day${weekendDays>1?'s':''} in the tracked period.`);
     }
@@ -1344,73 +1608,149 @@
     });
   }
 
-  function renderLog(sessions, activeStart, awayRanges){
-    const logBody = document.getElementById('logBody');
-    logBody.innerHTML = '';
-    if(activeStart){
-      const tr = document.createElement('tr');
-      tr.className = 'live-row';
-      tr.innerHTML = `
-        <td>${activeStart.toLocaleDateString([], {month:'short',day:'numeric'})}</td>
-        <td class="row-day">${DAY_NAMES[activeStart.getDay()]}</td>
-        <td>${activeStart.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
-        <td>running</td>
-        <td class="dur-cell" id="liveDur">${fmtHMS(Date.now()-activeStart.getTime())}</td>
-        <td></td>
-        <td></td>
-      `;
-      logBody.appendChild(tr);
-    }
-    // Interleave sessions and "away" entries, most recent first.
-    const rows = sessions.map(s=>({ kind: 'session', at: s.start, s }))
-      .concat(awayRanges.map(a=>({ kind: 'away', at: a.start, a })))
-      .sort((x,y)=> y.at - x.at);
-    rows.forEach(row=>{
-      if(row.kind === 'away'){
-        const a = row.a;
-        const tr = document.createElement('tr');
-        tr.className = 'away-row';
-        tr.innerHTML = `
-          <td>${a.start.toLocaleDateString([], {month:'short',day:'numeric'})}</td>
-          <td class="row-day">${DAY_NAMES[a.start.getDay()]}</td>
-          <td>${a.start.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
-          <td>${a.end.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}${dateKey(a.start) !== dateKey(a.end) ? ' <span class="row-day">(+1d)</span>' : ''}</td>
-          <td class="away-dur">&minus;${fmtHMS(a.end - a.start)}</td>
-          <td class="note-cell">${a.note ? escapeHtml(a.note) : ''} <span class="away-tag">away</span></td>
-          <td class="row-actions">
-            <button class="row-btn" data-action="edit" data-id="${escapeHtml(a.id)}">Edit</button>
-            <button class="row-btn row-btn-danger" data-action="delete" data-id="${escapeHtml(a.id)}">Delete</button>
-          </td>
-        `;
-        logBody.appendChild(tr);
-        return;
-      }
-      const s = row.s;
-      const tr = document.createElement('tr');
-      if(s.edited) tr.classList.add('edited-row');
-      const crossesMidnight = dateKey(s.start) !== dateKey(s.end);
-      tr.innerHTML = `
-        <td>${s.start.toLocaleDateString([], {month:'short',day:'numeric'})}</td>
-        <td class="row-day">${DAY_NAMES[s.start.getDay()]}</td>
-        <td>${s.start.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</td>
-        <td>${s.end.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}${crossesMidnight ? ' <span class="row-day">(+1d)</span>' : ''}</td>
-        <td class="dur-cell">${fmtHMS(s.end - s.start)}</td>
-        <td class="note-cell">${s.note ? escapeHtml(s.note) : ''}${s.edited ? ` <span class="edited-tag">${s.manual ? 'manual' : 'edited'}</span>` : ''}</td>
-        <td class="row-actions">
-          <button class="row-btn" data-action="edit" data-id="${escapeHtml(s.rawId)}">Edit</button>
-          <button class="row-btn row-btn-danger" data-action="delete" data-id="${escapeHtml(s.rawId)}">Delete</button>
-        </td>
-      `;
-      logBody.appendChild(tr);
-    });
+  // ---- session log: grouped by day, filtered by period, paged ----
+  // Only a page of days is rendered at a time, so the table stays small no
+  // matter how much history the CSV holds.
+  const LOG_PAGE_DAYS = 14;
+  let logPeriod = 'last30';
+  let logDaysShown = LOG_PAGE_DAYS;
+  let logState = { sessions: [], awayRanges: [], rows: [] };
+  try{ const p = localStorage.getItem('uptimeLoomLogPeriod'); if(p) logPeriod = p; }catch(e){}
 
-    logBody.querySelectorAll('button[data-action="edit"]').forEach(btn=>{
-      btn.addEventListener('click', ()=> openEditForm(btn.dataset.id, sessions, awayRanges));
-    });
-    logBody.querySelectorAll('button[data-action="delete"]').forEach(btn=>{
-      btn.addEventListener('click', ()=> deleteSession(btn.dataset.id));
-    });
+  function periodRange(period, now){
+    const today = startOfDay(now);
+    switch(period){
+      case 'thisWeek': { const s0 = weekStartOf(now); return [s0, addDays(s0,7)]; }
+      case 'lastWeek': { const s0 = addDays(weekStartOf(now),-7); return [s0, addDays(s0,7)]; }
+      case 'thisMonth': return [new Date(now.getFullYear(), now.getMonth(), 1), new Date(now.getFullYear(), now.getMonth()+1, 1)];
+      case 'lastMonth': return [new Date(now.getFullYear(), now.getMonth()-1, 1), new Date(now.getFullYear(), now.getMonth(), 1)];
+      case 'all': return [new Date(0), addDays(today, 2)];
+      default: return [addDays(today,-29), addDays(today,1)]; // last30
+    }
   }
+
+  function renderLog({ sessions, activeStart, awayRanges, dayTotal, now }){
+    const logBody = document.getElementById('logBody');
+    const [from, to] = periodRange(logPeriod, now);
+    const inPeriod = d => d >= from && d < to;
+    const tShort = d => d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+    // Build entries grouped by the day they start on.
+    const groups = new Map();
+    const add = (day, entry)=>{
+      const k = dateKey(day);
+      if(!groups.has(k)) groups.set(k, { day: startOfDay(day), entries: [] });
+      groups.get(k).entries.push(entry);
+    };
+    sessions.forEach(s=>{ if(inPeriod(s.start)) add(s.start, { kind:'session', at:s.start, s }); });
+    awayRanges.forEach(a=>{ if(inPeriod(a.start)) add(a.start, { kind:'away', at:a.start, a }); });
+    if(activeStart && inPeriod(activeStart)) add(activeStart, { kind:'live', at:activeStart });
+    const dayList = [...groups.values()].sort((a,b)=> b.day - a.day);
+    dayList.forEach(g=> g.entries.sort((x,y)=> y.at - x.at));
+
+    const periodTotal = dayList.reduce((a,g)=> a + dayTotal(g.day), 0);
+    const where = dirHandle ? 'corrections saved to <strong>corrections.json</strong>' : 'corrections saved in this browser only';
+    const rangeLabel = logPeriod === 'all' ? 'all time' : `${fmtShortDate(from)} – ${fmtShortDate(addDays(to,-1))}`;
+    document.getElementById('logSub').innerHTML = dayList.length
+      ? `${rangeLabel} &middot; <strong>${fmtH(periodTotal)}</strong> over ${dayList.length} day${dayList.length>1?'s':''} &middot; ${where}`
+      : `${rangeLabel} &middot; no sessions &middot; ${where}`;
+
+    const shown = dayList.slice(0, logDaysShown);
+    const html = [];
+    shown.forEach(g=>{
+      const n = g.entries.filter(e=> e.kind !== 'away').length;
+      html.push(`<tr class="day-row${isWeekend(g.day.getDay()) ? ' weekend-day' : ''}">
+        <td colspan="2">${g.day.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'})}${isWeekend(g.day.getDay()) ? ' <span class="row-day">weekend</span>' : ''}</td>
+        <td class="day-total">${fmtHM(dayTotal(g.day))}</td>
+        <td colspan="2" class="row-day">${n} session${n===1?'':'s'}</td>
+      </tr>`);
+      g.entries.forEach(e=>{
+        if(e.kind === 'live'){
+          html.push(`<tr class="live-row">
+            <td>${tShort(activeStart)}</td><td>running</td>
+            <td class="dur-cell" id="liveDur">${fmtHMS(Date.now()-activeStart.getTime())}</td>
+            <td></td><td></td></tr>`);
+        } else if(e.kind === 'away'){
+          const a = e.a;
+          html.push(`<tr class="away-row">
+            <td>${tShort(a.start)}</td>
+            <td>${tShort(a.end)}${dateKey(a.start) !== dateKey(a.end) ? ' <span class="row-day">(+1d)</span>' : ''}</td>
+            <td class="away-dur">&minus;${fmtHMS(a.end - a.start)}</td>
+            <td class="note-cell">${a.note ? escapeHtml(a.note) : ''} <span class="away-tag">away</span></td>
+            <td class="row-actions">
+              <button class="row-btn" data-action="edit" data-id="${escapeHtml(a.id)}">Edit</button>
+              <button class="row-btn row-btn-danger" data-action="delete" data-id="${escapeHtml(a.id)}">Delete</button>
+            </td></tr>`);
+        } else {
+          const s = e.s;
+          html.push(`<tr class="${s.edited ? 'edited-row' : ''}">
+            <td>${tShort(s.start)}</td>
+            <td>${tShort(s.end)}${dateKey(s.start) !== dateKey(s.end) ? ' <span class="row-day">(+1d)</span>' : ''}</td>
+            <td class="dur-cell">${fmtHMS(s.end - s.start)}</td>
+            <td class="note-cell">${s.note ? escapeHtml(s.note) : ''}${s.edited ? ` <span class="edited-tag">${s.manual ? 'manual' : 'edited'}</span>` : ''}</td>
+            <td class="row-actions">
+              <button class="row-btn" data-action="edit" data-id="${escapeHtml(s.rawId)}">Edit</button>
+              <button class="row-btn row-btn-danger" data-action="delete" data-id="${escapeHtml(s.rawId)}">Delete</button>
+            </td></tr>`);
+        }
+      });
+    });
+    if(!shown.length){
+      html.push(`<tr><td colspan="5" class="row-day" style="text-align:center;padding:20px;">No sessions in this period.</td></tr>`);
+    }
+    logBody.innerHTML = html.join('');
+
+    const more = document.getElementById('logMore');
+    const remaining = dayList.length - shown.length;
+    more.style.display = remaining > 0 ? 'inline-block' : 'none';
+    more.textContent = `Show ${Math.min(LOG_PAGE_DAYS, remaining)} more day${Math.min(LOG_PAGE_DAYS, remaining)===1?'':'s'} (${remaining} left)`;
+
+    document.getElementById('logPeriod').value = logPeriod;
+    logState = { sessions, awayRanges, dayList, dayTotal };
+  }
+
+  // One set of listeners for the log (rows are re-rendered often).
+  document.getElementById('logBody').addEventListener('click', (e)=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    if(btn.dataset.action === 'edit') openEditForm(btn.dataset.id, logState.sessions, logState.awayRanges);
+    else if(btn.dataset.action === 'delete') deleteSession(btn.dataset.id);
+  });
+  document.getElementById('logPeriod').addEventListener('change', (e)=>{
+    logPeriod = e.target.value;
+    logDaysShown = LOG_PAGE_DAYS;
+    try{ localStorage.setItem('uptimeLoomLogPeriod', logPeriod); }catch(err){}
+    render();
+  });
+  document.getElementById('logMore').addEventListener('click', ()=>{
+    logDaysShown += LOG_PAGE_DAYS;
+    render();
+  });
+
+  // Export the selected period as CSV (one row per session / away entry,
+  // plus a daily-total row per day) for Excel or anywhere else.
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const { dayList, dayTotal } = logState;
+    if(!dayList || !dayList.length){ alert('No sessions in this period to export.'); return; }
+    const q = v => `"${String(v).replace(/"/g,'""')}"`;
+    const iso = d => `${dateKey(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const hrs = ms => (ms/3600000).toFixed(2);
+    const lines = ['Date,Day,Type,Start,End,Hours,Note'];
+    [...dayList].reverse().forEach(g=>{
+      const day = DAY_NAMES[g.day.getDay()];
+      [...g.entries].reverse().forEach(e=>{
+        if(e.kind === 'session') lines.push([dateKey(g.day), day, e.s.manual ? 'manual' : (e.s.edited ? 'edited' : 'session'), iso(e.s.start), iso(e.s.end), hrs(e.s.end - e.s.start), q(e.s.note)].join(','));
+        else if(e.kind === 'away') lines.push([dateKey(g.day), day, 'away', iso(e.a.start), iso(e.a.end), '-' + hrs(e.a.end - e.a.start), q(e.a.note)].join(','));
+      });
+      lines.push([dateKey(g.day), day, 'day total', '', '', hrs(dayTotal(g.day)), ''].join(','));
+    });
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `uptime-loom-${logPeriod}-${dateKey(new Date())}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=> URL.revokeObjectURL(a.href), 1000);
+  });
 
   function escapeHtml(str){
     return String(str).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
