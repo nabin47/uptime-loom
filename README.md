@@ -277,16 +277,31 @@ actually asleep.
 
 ### Locked time isn't detected correctly
 
-Lock detection uses a standard Windows API call to check whether the
-current desktop is the secure lock-screen desktop. On most machines this
-is reliable, but it can behave inconsistently over Remote Desktop (RDP)
-sessions or on some managed/corporate Windows builds. To check, lock the
-screen, wait 2 minutes, unlock, and look at `heartbeat_log.csv`: the lines
-written while locked should end in `,locked`. If they say `,active`, lock
-detection isn't working on your system — locked breaks will still be
-counted (which is usually what you want), but the 4-hour cap and the
-"you have to come back" rule can't apply. The **Going out** shortcut does
-not depend on lock detection for excluding time.
+Lock, wait 2 minutes, unlock, and look at the end of `heartbeat_log.csv`:
+the lines written while locked should end in `,locked`.
+
+- **No `,active` / `,locked` at the end of the lines at all?** An older
+  copy of the heartbeat script is still running. Re-run
+  `SetupHeartbeat.ps1`, then log off and back on (or restart).
+- **Lines say `,active` while you were locked?** Run the built-in check:
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1" -Diagnose
+  ```
+
+  Press `Win+L` as soon as it starts, wait ~30 seconds, then unlock. The
+  window (and `lock_diagnose.txt` in your UptimeLoom folder) shows what each
+  detection method reported every 5 seconds — lines from while you were
+  locked should say `final=LOCKED`. If they don't, that file is exactly
+  what's needed to work out why.
+
+Lock detection asks Windows directly for your session's lock state
+(`WTSQuerySessionInformation`), falling back to checking for the sign-in
+screen (`LogonUI.exe`) if that's unavailable. It can still behave
+inconsistently over Remote Desktop or on some managed/corporate builds.
+If locking isn't detected, locked breaks are simply logged as active (so
+they still count), but the 4-hour cap, the "you have to come back" rule
+and the Going out shortcut can't work properly.
 
 ### Startup shortcut isn't firing at all
 
