@@ -15,17 +15,34 @@ No accounts, no cloud, no installs. Your data never leaves your machine.
 ## How it works
 
 A small PowerShell script (`Heartbeat.ps1`) starts automatically when you log
-in to Windows. Every 60 seconds, it appends a timestamp to a CSV file — but
-only if the workstation is currently unlocked. When you shut down, sleep,
-**or lock your screen and step away**, heartbeats simply stop; there's
-nothing to detect and nothing to press. The **last timestamp before a gap**
-is treated as the moment that session ended, and a new session begins the
-next time a heartbeat is written after you're back.
+in to Windows. Every 60 seconds, it appends a timestamp to a CSV file, tagged
+with whether the PC was unlocked (`active`) or locked (`locked`). When you
+shut down or the PC sleeps, heartbeats simply stop. The **last timestamp
+before a gap** is treated as the moment that session ended, and a new
+session begins the next time a heartbeat is written.
 
-This means stepping away for lunch, a meeting, or anything else — just
-lock your screen (`Win+L`) like you probably already do — and that time is
-automatically excluded from your tracked hours. No pause button, no manual
-subtraction.
+### Locking the PC vs. actually leaving
+
+**Locking your screen (`Win+L`) for a class, meeting or lunch still counts
+as office time** — as long as you come back and unlock the PC afterwards.
+Two safety rules keep this honest:
+
+- **You have to come back.** A locked stretch only counts when it ends with
+  you unlocking the PC. If you lock it and go home, and it later sleeps or
+  just stays locked overnight, that locked time is dropped.
+- **There's a cap.** A single locked stretch counts for at most **4 hours**
+  (changeable in the dashboard, `0` = never count locked time). Longer than
+  that is treated as time away.
+
+**When you leave and the time should *not* count** — e.g. going off campus
+for some work — use the **"Uptime Loom - Going out"** shortcut instead of
+`Win+L` (on your Desktop and in the Start menu, or press **Ctrl+Alt+G**).
+It locks the PC and marks you as away; nothing is logged until you unlock
+again, so that time is excluded exactly like a shutdown.
+
+Forgot to use the shortcut? Click **− Mark away** in the dashboard's session
+log and enter the time range you were out — it's subtracted from your
+totals.
 
 The dashboard (`dashboard.html`) is a single self-contained HTML file that
 reads that CSV and reconstructs your work sessions, then renders stats and
@@ -35,19 +52,17 @@ charts. It runs entirely in your browser — nothing is uploaded anywhere.
 Login  ──▶  Heartbeat.ps1 starts (via Startup folder shortcut)
               │
               ▼
-   writes a timestamp every 60s, only while unlocked
+   writes "timestamp,active|locked" every 60s
               │
-    ┌─────────┼─────────────────┐
-    ▼                           ▼
-Lock screen              Shutdown/sleep
-(Win+L, step away)      heartbeats stop
-heartbeats pause                │
-    │                           │
-    ▼                           ▼
-Unlock ──▶ heartbeats resume, new session begins
+    ┌─────────┼──────────────────────┬──────────────────────┐
+    ▼                                ▼                      ▼
+Win+L (class/meeting)        Going out (Ctrl+Alt+G)   Shutdown/sleep
+logged as "locked";          locks + marks away;      heartbeats stop
+counts if you unlock         heartbeats stop          (not counted)
+again (up to the cap)        until you unlock
               │
               ▼
-      open dashboard.html ──▶ load the CSV ──▶ see your stats
+      open dashboard.html ──▶ load the folder ──▶ see your stats
 ```
 
 ---
@@ -57,8 +72,10 @@ Unlock ──▶ heartbeats resume, new session begins
 - **Fully automatic** — no clock-in/clock-out button to forget
 - **Manual corrections** — edit, delete, or add sessions directly in the
   dashboard for the rare case the automatic tracking needs a fix or a note
-- **Excludes time away automatically** — lock your screen (Win+L) and that
-  time is left out of your tracked hours, no pause button needed
+- **Classes and meetings still count** — locking the PC (Win+L) doesn't
+  stop the clock as long as you come back and unlock it (up to a 4h cap)
+- **One-click "Going out"** — Ctrl+Alt+G locks the PC and excludes the time
+  until you're back, for when you leave campus
 - **Live auto-sync in Chrome/Edge** — load the CSV once, the dashboard
   silently keeps itself current from then on
 - **No admin rights needed anywhere** — uses the Startup folder, not Task
@@ -66,12 +83,13 @@ Unlock ──▶ heartbeats resume, new session begins
 - **Local-only data** — a single CSV file on your own disk
 - **Dashboard includes:**
   - Live "today" timer
-  - This week's total hours, with week-over-week trend
-  - Average arrival time and a consistency score
+  - This week's total hours (Mon → now), compared with last week at the
+    same point
+  - Average arrival time (first session of each day) and a consistency score
   - Current day streak
   - 30-day daily hours trend with 7-day rolling average
-  - Average hours by day of week
-  - Arrival/departure time chart for recent sessions
+  - Average hours per day worked, by day of week
+  - First-in / last-out chart for recent days
   - GitHub-style activity heatmap
   - Auto-generated plain-language insights (busiest day, weekend work
     detected, etc.)
@@ -85,6 +103,7 @@ Unlock ──▶ heartbeats resume, new session begins
 1. **Download** the files in this repo and put them together in one
    folder — anywhere is fine, e.g. `Downloads\uptime-loom\`:
    - `Heartbeat.ps1`
+   - `GoingOut.ps1`
    - `SetupHeartbeat.ps1`
    - `dashboard.html`
 
@@ -103,13 +122,15 @@ Unlock ──▶ heartbeats resume, new session begins
 
    This will:
    - Create `C:\Users\<you>\UptimeLoom\`
-   - Copy `Heartbeat.ps1` and the dashboard into that folder
+   - Copy `Heartbeat.ps1`, `GoingOut.ps1` and the dashboard into that folder
    - Add a shortcut to your Startup folder so logging begins automatically
      on every future login
+   - Add an **"Uptime Loom - Going out"** shortcut to your Desktop and Start
+     menu (hotkey **Ctrl+Alt+G**)
 
-4. **Done.** From your next login onward, it just works. To start logging
-   immediately without restarting, the setup script prints a one-line
-   command you can paste to start it right away.
+4. **Done.** From your next login onward, it just works. The setup script
+   also offers to start logging immediately, so you don't have to log off.
+   (Starting it more than once is harmless — only one copy ever runs.)
 
 ---
 
@@ -124,6 +145,8 @@ lets you:
 - **Delete** a session that shouldn't count (e.g. a test run)
 - **Add** a fully manual session for time that was never logged (e.g. the
   script wasn't running that day)
+- **Mark away** a time range that shouldn't count (e.g. you went off campus
+  but only locked the PC instead of using the Going out shortcut)
 
 **In Chrome or Edge**, when you load your UptimeLoom folder, corrections
 are saved to a `corrections.json` file in that same folder — right next to
@@ -218,7 +241,7 @@ Unblock-File "$env:USERPROFILE\UptimeLoom\SetupHeartbeat.ps1"
 Only do this after you've actually read the script — that's what the flag
 is there to make you stop and consider.
 
-### Dashboard shows "off" even though the PC is on
+### Dashboard shows "Not active" even though the PC is on
 
 If you're in Chrome/Edge with live sync active, wait up to 15 seconds for
 the next automatic sync, or click **Sync now**. If you're on a browser
@@ -252,17 +275,18 @@ you're still hitting this often, it may be worth checking your power plan's
 sleep settings, since a script can't write to disk while the PC itself is
 actually asleep.
 
-### Locking my screen doesn't seem to pause tracking
+### Locked time isn't detected correctly
 
 Lock detection uses a standard Windows API call to check whether the
 current desktop is the secure lock-screen desktop. On most machines this
 is reliable, but it can behave inconsistently over Remote Desktop (RDP)
-sessions or on some managed/corporate Windows builds. If you suspect this
-isn't working correctly, check `heartbeat_log.csv` directly — lock the
-screen, wait 2 minutes, unlock, and see whether new timestamps appeared
-during that window. If they did, lock detection isn't working on your
-system and that gap won't be excluded; treat lock-based breaks as
-approximate rather than guaranteed on such systems.
+sessions or on some managed/corporate Windows builds. To check, lock the
+screen, wait 2 minutes, unlock, and look at `heartbeat_log.csv`: the lines
+written while locked should end in `,locked`. If they say `,active`, lock
+detection isn't working on your system — locked breaks will still be
+counted (which is usually what you want), but the 4-hour cap and the
+"you have to come back" rule can't apply. The **Going out** shortcut does
+not depend on lock detection for excluding time.
 
 ### Startup shortcut isn't firing at all
 
@@ -288,19 +312,26 @@ It should show `powershell.exe` and arguments pointing only at
 
 ## Data format
 
-`heartbeat_log.csv` is a single-column CSV:
+`heartbeat_log.csv` is a simple CSV:
 
 ```
-Timestamp
-2026-08-16 09:03:12
-2026-08-16 09:04:12
-2026-08-16 09:05:12
+Timestamp,State
+2026-08-16 09:03:12,active
+2026-08-16 09:04:12,active
+2026-08-16 11:02:12,locked
 ...
 ```
 
+`State` is `active` (unlocked) or `locked`. Logs from older versions have no
+state column; those lines are treated as `active`.
+
 The dashboard reconstructs sessions by finding gaps larger than 3 minutes
-between consecutive timestamps — a gap means the PC was off, asleep, or
-locked in between. This format is intentionally simple so you can also
+between consecutive timestamps — a gap means the PC was off, asleep, or you
+used the Going out shortcut. Locked stretches inside a session count if
+they end with an unlock and are no longer than the cap. Timestamps are local wall-clock time. Daily totals are
+split at local midnight (a session from 11 PM to 1 AM counts one hour on
+each day), and overlapping sessions — e.g. a manual session that overlaps
+logged time — are only counted once. This format is intentionally simple so you can also
 open it in Excel or process it yourself (Python/pandas, etc.) if you want
 custom analysis.
 
@@ -319,7 +350,8 @@ correction) is a plain array of correction objects:
 ]
 ```
 
-`type` is one of `edit`, `delete`, or `add`. You generally shouldn't need
+`type` is one of `edit`, `delete`, `add`, or `away` (a time range
+subtracted from your totals). You generally shouldn't need
 to hand-edit this file, but it's plain and readable if you ever want to.
 
 ---
@@ -335,9 +367,12 @@ Everything stays local:
 
 ## Limitations
 
-- Tracks **unlocked, powered-on** time — an idle-but-unlocked screen (e.g.
-  you're reading something away from the keyboard but never locked it)
-  still counts as active
+- It can't know *where* you are: a locked PC looks the same whether you're
+  in class or off campus. Use the Going out shortcut (or **Mark away**
+  afterwards) for time that shouldn't count. If you lock the PC, go to
+  class and then leave directly without coming back, that class time isn't
+  counted automatically — add it with **+ Add session**
+- An idle-but-unlocked screen still counts as active
 - Lock-screen detection relies on a standard Windows API check that is
   reliable on typical local sessions but can behave inconsistently over
   Remote Desktop or certain managed/corporate Windows configurations — see
