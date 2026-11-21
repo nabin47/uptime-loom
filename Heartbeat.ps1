@@ -16,8 +16,10 @@
 #
 # No admin rights needed anywhere in this script.
 #
-# Checking lock detection on your PC:
-#   powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1" -Diagnose
+# Installed and started by Install.cmd; you don't need to run it yourself.
+#
+# Checking lock detection on your PC (paste into a PowerShell window):
+#   & ([scriptblock]::Create((Get-Content "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1" -Raw))) -Diagnose
 # then press Win+L, wait ~30 seconds, unlock, and read the window (or
 # lock_diagnose.txt in the UptimeLoom folder). Lines written while locked
 # should say "final=LOCKED".
@@ -59,6 +61,7 @@ if (-not (Test-Path $LogFolder)) {
 # Note: (2b) on its own is NOT enough on Windows 10/11 -- the lock screen
 # "curtain" (picture + clock) runs on your normal desktop, so that check
 # only notices the lock once the password box is showing.
+try {
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -129,6 +132,10 @@ public static class UptimeLoomLock {
     }
 }
 "@ -ErrorAction SilentlyContinue
+} catch {
+    # Not allowed on locked-down PCs (Constrained Language Mode). Lock
+    # detection then falls back to the LogonUI.exe check below.
+}
 
 $MySessionId = (Get-Process -Id $PID).SessionId
 
@@ -169,7 +176,9 @@ function Test-WorkstationLocked {
 if ($Diagnose) {
     $out = "$LogFolder\lock_diagnose.txt"
     $typeLoaded = [bool]('UptimeLoomLock' -as [type])
-    $header = "Uptime Loom lock diagnostics -- $(Get-Date) -- Windows $([Environment]::OSVersion.Version) -- session $MySessionId -- detector loaded: $typeLoaded"
+    $winVer = '?'
+    try { $winVer = [Environment]::OSVersion.Version } catch { }
+    $header = "Uptime Loom lock diagnostics -- $(Get-Date) -- Windows $winVer -- session $MySessionId -- detector loaded: $typeLoaded -- $($ExecutionContext.SessionState.LanguageMode)"
     $header | Out-File -FilePath $out -Encoding UTF8
     Write-Host $header
     Write-Host "Press Win+L now, wait ~30 seconds, then unlock. Running for 90 seconds..."
@@ -189,8 +198,14 @@ if ($Diagnose) {
 }
 
 # --- Single instance ---
-$createdNew = $false
-$script:InstanceMutex = New-Object System.Threading.Mutex($true, "Local\UptimeLoomHeartbeat", [ref]$createdNew)
+$createdNew = $true
+try {
+    $script:InstanceMutex = New-Object System.Threading.Mutex($true, "Local\UptimeLoomHeartbeat", [ref]$createdNew)
+} catch {
+    # Locked-down PCs may not allow this. Running twice only writes duplicate
+    # timestamps, which the dashboard handles, so just carry on.
+    $createdNew = $true
+}
 if (-not $createdNew) {
     # Another heartbeat logger is already running in this session.
     exit
@@ -199,6 +214,8 @@ if (-not $createdNew) {
 if (-not (Test-Path $LogFile)) {
     "Timestamp,State" | Out-File -FilePath $LogFile -Encoding UTF8
 }
+
+$Invariant = [cultureinfo]::InvariantCulture
 
 # Interval bookkeeping uses UTC so DST changes don't affect it; the value
 # written to the log stays local wall-clock time, as the dashboard expects.
@@ -228,7 +245,10 @@ while ($true) {
                 # picked up by the dashboard exactly like a shutdown gap.
             } else {
                 $state     = if ($locked) { 'locked' } else { 'active' }
-                $timestamp = $nowUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                # Fixed, culture-independent format: some regional settings
+                # would otherwise change the time separator or even the
+                # calendar (e.g. Thai or Hijri years).
+                $timestamp = $nowUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", $Invariant)
                 Add-Content -Path $LogFile -Value "$timestamp,$state" -Encoding UTF8
                 $lastWriteUtc = $nowUtc
             }

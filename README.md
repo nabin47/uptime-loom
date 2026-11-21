@@ -105,37 +105,39 @@ again (up to the cap)        until you unlock
 
 ## Installation
 
-1. **Download** the files in this repo and put them together in one
-   folder — anywhere is fine, e.g. `Downloads\uptime-loom\`:
-   - `Heartbeat.ps1`
-   - `GoingOut.ps1`
-   - `SetupHeartbeat.ps1`
-   - `dashboard.html`
+No administrator rights needed, and nothing to configure.
 
-2. **Unblock the scripts.** Windows tags downloaded files with a "Mark of
-   the Web" flag that can prevent them from running even after the setup
-   below. Right-click each `.ps1` file → **Properties** → check **Unblock**
-   at the bottom → OK. (Or see the [PowerShell alternative](#unblock-files)
-   below.)
+1. **Download** this repository as a ZIP (green **Code** button → **Download
+   ZIP**), then right-click the ZIP → **Extract All…**.
+2. Open the extracted folder and **double-click `Install.cmd`**.
+   - If Windows shows *"Windows protected your PC"*, click **More info** →
+     **Run anyway**. If it shows *"Open File – Security Warning"*, click
+     **Run**. (This is Windows being careful about any file downloaded from
+     the internet. Both files are short and readable, so look through
+     them first if you like.)
+3. That's it. The installer:
+   - copies Uptime Loom to `C:\Users\<you>\UptimeLoom`
+   - starts logging **right away** and checks that it's working
+   - makes it start automatically every time you sign in
+   - adds **Uptime Loom** (the dashboard) and **Uptime Loom - Going out**
+     (hotkey **Ctrl+Alt+G**) to your Desktop and Start menu
+   - opens the dashboard with the folder path already copied, so you just
+     click **Load folder** and paste it with **Ctrl+V**
 
-   > Before unblocking anything you download from the internet — this
-   > repo included — you should read through the script yourself. Both
-   > files here are short and plain PowerShell; there's nothing to hide.
+To **update**, download the new version and run `Install.cmd` again. Your
+data and corrections are kept, and the new version takes over immediately.
+You don't need to log off.
 
-3. **Run the setup script.** Right-click `SetupHeartbeat.ps1` → **Run with
-   PowerShell**. No "Run as administrator" needed — a normal click is fine.
+To **uninstall**, double-click `Uninstall.cmd` (also in
+`C:\Users\<you>\UptimeLoom`). It stops logging and removes the shortcuts.
+Your data stays in the folder until you delete it.
 
-   This will:
-   - Create `C:\Users\<you>\UptimeLoom\`
-   - Copy `Heartbeat.ps1`, `GoingOut.ps1` and the dashboard into that folder
-   - Add a shortcut to your Startup folder so logging begins automatically
-     on every future login
-   - Add an **"Uptime Loom - Going out"** shortcut to your Desktop and Start
-     menu (hotkey **Ctrl+Alt+G**)
-
-4. **Done.** From your next login onward, it just works. The setup script
-   also offers to start logging immediately, so you don't have to log off.
-   (Starting it more than once is harmless — only one copy ever runs.)
+The installer works on locked-down work PCs too. It doesn't depend on
+PowerShell's script execution policy, and where a step is blocked (for
+example creating shortcuts) it uses a simpler alternative. If anything
+still goes wrong, it says so and saves a log to
+`C:\Users\<you>\UptimeLoom\install-log.txt`. Send that file to whoever is
+helping you.
 
 ---
 
@@ -178,20 +180,22 @@ dashboard is worth it just for this reason.
 
 ## Using the dashboard
 
-Open `dashboard.html` (found in `C:\Users\<you>\UptimeLoom\`) in any
-browser. Click **Load folder** and select your `UptimeLoom` folder (the
-one containing `heartbeat_log.csv`) — not the CSV file itself.
+Open **Uptime Loom** from your Desktop or Start menu (it's
+`C:\Users\<you>\UptimeLoom\dashboard.html`, which opens in your browser). The
+first time, click **Load folder** and choose your `UptimeLoom` folder (the
+one containing `heartbeat_log.csv`). Choosing your user folder above it
+works too.
 
-**In Chrome or Edge**, the dashboard uses the File System Access API to
-keep itself in sync automatically — after you load the folder once, it
-silently re-reads the CSV every 15 seconds with no further clicks. You'll
-see "last synced" update in the header. This permission is granted per
-browser session; you'll need to click **Load folder** again if you close
-and reopen the tab.
+**In Chrome or Edge**, that's the only time you do this. The dashboard
+remembers the folder and re-reads it every 15 seconds; "last synced" in the
+header shows when. Next time you open it, it either loads straight away
+(if you allowed access "on every visit") or shows a one-click
+**Reconnect** button.
 
-**In Firefox or other browsers** that don't support this API, the
-dashboard falls back to manual refresh — click **Refresh** any time you
-want current data.
+**In Firefox or other browsers** without folder access, drag
+`heartbeat_log.csv` from the UptimeLoom folder onto the page (or use
+**Load folder** to pick the file), and click **Refresh** when you want
+newer data.
 
 ### Settings
 
@@ -221,54 +225,16 @@ Excel or anywhere else.
 
 ## Troubleshooting
 
-### "Running scripts is disabled on this system"
+### Double-clicking Install.cmd does nothing / a window flashes and closes
 
-You'll see this if you try to run the script directly and PowerShell's
-execution policy blocks it:
+Make sure you extracted the ZIP first (right-click → **Extract All…**).
+Running `Install.cmd` from inside the ZIP preview doesn't work, because the
+other files aren't there. If the window shows an error, it stays open until
+you press a key. The details are in
+`C:\Users\<you>\UptimeLoom\install-log.txt`.
 
-```
-File ...\Heartbeat.ps1 cannot be loaded because running scripts is
-disabled on this system.
-```
-
-Check what's set:
-
-```powershell
-Get-ExecutionPolicy -List
-```
-
-- If `MachinePolicy` or `UserPolicy` show anything other than `Undefined`,
-  your policy is locked by Group Policy (common on managed/work machines) —
-  you'll need an administrator to change it.
-- If those two are `Undefined`, you can fix it yourself, no admin needed:
-
-  ```powershell
-  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-  ```
-
-  This only affects your own user account. It allows locally-written
-  scripts to run while still blocking unsigned scripts from the internet —
-  a reasonable, commonly-used default.
-
-### "The file ... is not digitally signed"
-
-Even after fixing the execution policy, downloaded files carry a separate
-"Mark of the Web" tag that `RemoteSigned` respects. Check for it:
-
-```powershell
-Get-Item "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1" -Stream Zone.Identifier
-```
-
-If that returns something instead of an error, unblock the file:
-
-<a name="unblock-files"></a>
-```powershell
-Unblock-File "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1"
-Unblock-File "$env:USERPROFILE\UptimeLoom\SetupHeartbeat.ps1"
-```
-
-Only do this after you've actually read the script — that's what the flag
-is there to make you stop and consider.
+If your organisation blocks `.cmd` files or PowerShell completely (rare,
+but some locked-down PCs do), Uptime Loom can't run there without IT's help.
 
 ### Dashboard shows "Not active" even though the PC is on
 
@@ -279,30 +245,15 @@ without live sync (e.g. Firefox), click **Refresh** and re-select
 
 ### No new heartbeats are being written / logging seems stuck
 
-First check whether the process is actually running:
+Run `Install.cmd` again. It stops any stuck copy, starts a fresh one and
+tells you whether logging is working. To look at the log yourself:
 
 ```powershell
-Get-Process powershell -ErrorAction SilentlyContinue
 Get-Content "$env:USERPROFILE\UptimeLoom\heartbeat_log.csv" -Tail 5
 ```
 
-If the process is running but the last timestamp is old (more than a couple
-of minutes stale), the loop has likely stalled — this can happen if the PC
-goes to sleep while the script is running, and the process gets suspended
-mid-cycle rather than cleanly stopped. Restart it:
-
-```powershell
-# find the PID from Get-Process above, then:
-Stop-Process -Id <PID> -Force
-Start-Process powershell.exe -ArgumentList '-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Users\<you>\UptimeLoom\Heartbeat.ps1"'
-```
-
-The version of `Heartbeat.ps1` in this repo already includes a fix for this
-(it checks wall-clock time in short 5-second ticks instead of one long
-60-second sleep, so a sleep/wake cycle can't stall it as easily) — if
-you're still hitting this often, it may be worth checking your power plan's
-sleep settings, since a script can't write to disk while the PC itself is
-actually asleep.
+A new line should appear about once a minute. Logging can't happen while
+the PC itself is asleep, so gaps during sleep are expected.
 
 ### Locked time isn't detected correctly
 
@@ -310,13 +261,16 @@ Lock, wait 2 minutes, unlock, and look at the end of `heartbeat_log.csv`:
 the lines written while locked should end in `,locked`.
 
 - **No `,active` / `,locked` at the end of the lines at all?** An older
-  copy of the heartbeat script is still running. Re-run
-  `SetupHeartbeat.ps1`, then log off and back on (or restart).
+  copy of the heartbeat script is still running. Run `Install.cmd` again.
+  It replaces the old copy straight away.
 - **Lines say `,active` while you were locked?** Run the built-in check:
 
   ```powershell
-  powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1" -Diagnose
+  & ([scriptblock]::Create((Get-Content "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1" -Raw))) -Diagnose
   ```
+
+  (Paste it into a PowerShell window: Start menu → type *PowerShell* →
+  Enter.)
 
   Press `Win+L` as soon as it starts, wait ~30 seconds, then unlock. The
   window (and `lock_diagnose.txt` in your UptimeLoom folder) shows what each
@@ -332,25 +286,17 @@ If locking isn't detected, locked breaks are simply logged as active (so
 they still count), but the 4-hour cap, the "you have to come back" rule
 and the Going out shortcut can't work properly.
 
-### Startup shortcut isn't firing at all
+### Logging doesn't start after signing in
 
-Confirm it exists:
-
-```powershell
-Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\UptimeLoom.lnk"
-```
-
-If `False`, re-run `SetupHeartbeat.ps1`. If `True` but it's still not
-starting, check what it's actually pointing to:
+Check that the startup entry exists (`UptimeLoom.lnk`, or `UptimeLoom.cmd`
+on PCs that don't allow shortcuts):
 
 ```powershell
-$s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\UptimeLoom.lnk")
-$s.TargetPath
-$s.Arguments
+Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" -Filter "UptimeLoom*"
 ```
 
-It should show `powershell.exe` and arguments pointing only at
-`Heartbeat.ps1` inside your `UptimeLoom` folder.
+If nothing is listed, run `Install.cmd` again. Also check that Uptime Loom
+isn't turned off under **Settings → Apps → Startup** in Windows.
 
 ---
 
