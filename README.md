@@ -83,23 +83,31 @@ again (up to the cap)        until you unlock
 - **Local-only data** — a single CSV file on your own disk
 - **Dashboard includes:**
   - Live "today" timer
-  - This week's and this month's totals, each compared with the previous
-    week/month at the same point
-  - Average arrival and departure time (first in / last out each day) and
-    a consistency score
-  - Current day streak (your weekend days don't break it)
+  - This week's and this month's hours, with last week/month "by now" for
+    comparison
+  - How much is left to reach this week's target, and days present this
+    month
+  - Usual arrival and departure time (first in / last out each day)
+  - A plain **Summary** table for this week and this month: hours worked,
+    target, hours still needed (and how much that is per remaining
+    workday), ahead or behind, days present and missed, average per day,
+    on-time arrivals, early departures, class/meeting time, time marked
+    away and weekend work
+  - **Things to know**: short notes only when something needs attention,
+    e.g. how many hours a day you need to hit your target, a workday with
+    no time recorded (with a one-click "Mark as day off"), arriving late
+    repeatedly, or a very long day
   - 30-day daily hours trend with 7-day rolling average
   - Weekly totals for the last 12 weeks against your weekly target
   - "When you work" — average minutes in each hour of the day
   - Average hours per day worked, by day of week
   - First-in / last-out chart for recent days
   - GitHub-style activity heatmap
-  - Auto-generated plain-language insights (longest day, target hit rate,
-    time spent in locked breaks such as classes, weekend work, etc.)
   - Session log grouped by day, filterable by period, with CSV export
   - Light and dark mode
 - **Settings** — choose the first day of the week, which days are your
-  weekend, a weekly hour target, and how long a locked break can count
+  weekend, a weekly hour target, your work hours, and how long a locked
+  break can count
 
 ---
 
@@ -154,6 +162,8 @@ lets you:
   script wasn't running that day)
 - **Mark away** a time range that shouldn't count (e.g. you went off campus
   but only locked the PC instead of using the Going out shortcut)
+- **Day off** for leave, holidays or sick days. That day isn't counted as
+  a missed workday and the week's and month's targets are lowered to match
 
 **In Chrome or Edge**, when you load your UptimeLoom folder, corrections
 are saved to a `corrections.json` file in that same folder — right next to
@@ -203,10 +213,16 @@ Open **Settings** at the top of the dashboard to set:
 
 - **Week starts on** — used for "This week", the weekly chart, the activity
   calendar's columns and the session log's week filters
-- **Weekend days** — any combination (e.g. Friday + Saturday). Weekend days
-  don't break your streak and are shown in grey in the day-of-week chart
-- **Weekly target** — hours per week (0 turns it off); shown on the weekly
-  chart and in the insights
+- **Weekend days** — any combination (e.g. Friday + Saturday). Every other
+  day is a workday. Weekend days are never counted as missed, and they're
+  shown in grey in the day-of-week chart
+- **Weekly target** — hours per week (0 turns it off). It's split evenly
+  over your workdays (40h over 5 workdays = 8h a day), which gives the
+  monthly target and the "ahead or behind" figure
+- **Work hours** — when your day normally starts and ends (default 9:00 to
+  17:00). Used for "on time" (arrived within 15 minutes of the start) and
+  "left early" (left more than 15 minutes before the end). Clear either
+  field to turn that row off
 - **Locked PC counts up to** — the cap for a single locked break
 
 The week start and weekend default to your browser's region settings.
@@ -340,8 +356,9 @@ correction) is a plain array of correction objects:
 ]
 ```
 
-`type` is one of `edit`, `delete`, `add`, or `away` (a time range
-subtracted from your totals). You generally shouldn't need
+`type` is one of `edit`, `delete`, `add`, `away` (a time range
+subtracted from your totals), or `dayoff` (a whole day of leave/holiday,
+stored as `{"type":"dayoff","id":"dayoff_2026-11-17","date":"2026-11-17","note":"leave"}`). You generally shouldn't need
 to hand-edit this file, but it's plain and readable if you ever want to.
 
 ---
