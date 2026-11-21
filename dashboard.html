@@ -815,7 +815,10 @@
       const m = TS_RE.exec(raw.trim());
       if(!m) continue;
       const d = new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +(m[6]||0));
-      if(!isNaN(d)) parsed.push({ t: d, locked: (m[7]||'').toLowerCase() === 'locked' });
+      const state = (m[7]||'').toLowerCase();
+      // "boot" = when the PC was switched on / woke up, added by the heartbeat
+      // after you sign in. Until you sign in it's treated like a locked PC.
+      if(!isNaN(d)) parsed.push({ t: d, locked: state === 'locked' || state === 'boot', boot: state === 'boot' });
     }
     parsed.sort((a,b)=> a.t - b.t);
     heartbeats = parsed;
@@ -945,10 +948,14 @@
     const isLive = (nowMs - lastBeat.getTime()) <= STALE_THRESHOLD_MS;
 
     // 1. Split into segments at gaps (PC off, asleep, or marked "going out").
+    //    The gap after a "boot" line is the time the PC sat at the sign-in
+    //    screen, so it doesn't split -- unless it's longer than the cap.
     const segments = [];
     let seg = [heartbeats[0]];
     for(let i=1;i<heartbeats.length;i++){
-      if(heartbeats[i].t - heartbeats[i-1].t > GAP_THRESHOLD_MS){ segments.push(seg); seg = []; }
+      const prev = heartbeats[i-1], gap = heartbeats[i].t - prev.t;
+      const waitingAtSignIn = prev.boot && gap <= capMs;
+      if(gap > GAP_THRESHOLD_MS && !waitingAtSignIn){ segments.push(seg); seg = []; }
       seg.push(heartbeats[i]);
     }
     segments.push(seg);
@@ -956,15 +963,25 @@
     // 2. Within a segment, a session runs from the first unlocked heartbeat
     //    to the last unlocked one. Locked stretches between two unlocked
     //    heartbeats count (you came back), unless longer than the cap.
-    //    Leading locked beats (e.g. PC woke at the lock screen) and trailing
-    //    ones (locked, then left) are not counted.
+    //    Time at the start -- PC switched on / woke up but you hadn't signed
+    //    in or unlocked yet -- also counts once you do, within the cap (a PC
+    //    that wakes at 3 AM for updates and nobody unlocks never counts).
+    //    Trailing locked beats (locked, then left) are not counted.
     let result = { activeStart: null, lockedSince: null, lockExpired: false };
     const lockedBreaks = []; // locked stretches that counted (you came back)
     segments.forEach((beats, si)=>{
-      let curStart = null, lastActive = null, inLock = false;
+      let curStart = null, lastActive = null, inLock = false, leadStart = null;
       for(const b of beats){
         if(!b.locked){
-          if(curStart === null) curStart = b.t;
+          if(curStart === null){
+            if(leadStart !== null && (b.t - leadStart) <= capMs){
+              curStart = leadStart;
+              lockedBreaks.push({ start: leadStart, end: b.t, beforeSignIn: true });
+            } else {
+              curStart = b.t;
+            }
+            leadStart = null;
+          }
           else if(inLock && (b.t - lastActive) > capMs){
             sessions.push({ start: curStart, end: lastActive });
             curStart = b.t;
@@ -975,6 +992,8 @@
           lastActive = b.t;
         } else if(curStart !== null){
           inLock = true;
+        } else if(leadStart === null){
+          leadStart = b.t;   // PC on, nobody signed in / unlocked yet
         }
       }
       if(curStart === null) return;
@@ -1402,8 +1421,11 @@
     }
 
     // Locked breaks that counted, net of anything marked away.
-    const breakCounter = makeRangeCounter(subtractIntervals(
-      mergeIntervals((built.lockedBreaks||[]).map(b=>({ start: +b.start, end: +b.end }))), awayCuts));
+    const lockedCounter = list => makeRangeCounter(subtractIntervals(
+      mergeIntervals(list.map(b=>({ start: +b.start, end: +b.end }))), awayCuts));
+    const allBreaks = built.lockedBreaks || [];
+    const breakCounter = lockedCounter(allBreaks.filter(b=> !b.beforeSignIn));     // class / meeting
+    const preSignInCounter = lockedCounter(allBreaks.filter(b=> b.beforeSignIn));  // PC on, not signed in yet
 
     renderTrendChart(dayTotal, now);
     renderWeeklyChart(weeks, thisWeekMs);
@@ -1412,7 +1434,7 @@
     renderTimeChart(workdays.slice(-14));
     renderHeatmap(dayTotal, now);
     const awayCounter = makeRangeCounter(awayCuts);
-    renderSummary({ now, msInRange, dayTotal, dayStatsMap, breakCounter, awayCounter, activeStart, weekStart, monthStart });
+    renderSummary({ now, msInRange, dayTotal, dayStatsMap, breakCounter, preSignInCounter, awayCounter, activeStart, weekStart, monthStart });
     renderLog({ sessions, activeStart, awayRanges, dayTotal, now });
   }
 
@@ -1633,7 +1655,7 @@
   // Everything here is about workdays: days that aren't weekend days (see
   // Settings) and aren't marked as a day off.
   function summarizePeriod(from, to, ctx){
-    const { now, msInRange, dayTotal, dayStatsMap, breakCounter, awayCounter, activeStart, daysOff } = ctx;
+    const { now, msInRange, dayTotal, dayStatsMap, breakCounter, preSignInCounter, awayCounter, activeStart, daysOff } = ctx;
     const today = startOfDay(now);
     const startH = hhmmToHours(settings.workStart), endH = hhmmToHours(settings.workEnd);
     const perDay = dailyTargetMs();
@@ -1643,7 +1665,7 @@
       periodWorkdays: 0, pastWorkdays: 0, remainingWorkdays: 0, daysOffCount: 0,
       present: 0, presentFinished: 0, workedFinishedPresent: 0, todayIsWorkday: false, workdaysSoFar: 0, missing: [], onTime: 0, arrivalsCounted: 0, leftEarly: 0, departuresCounted: 0,
       weekendDays: 0, weekendMs: 0, longDays: [],
-      breaks: breakCounter(+from, Math.min(+to, +now)), away: awayCounter(+from, Math.min(+to, +now)),
+      breaks: breakCounter(+from, Math.min(+to, +now)), preSignIn: preSignInCounter(+from, Math.min(+to, +now)), away: awayCounter(+from, Math.min(+to, +now)),
     };
     for(let d = new Date(from); d < to; d = addDays(d,1)){
       const key = dateKey(d), dow = d.getDay();
@@ -1689,9 +1711,9 @@
     return r;
   }
 
-  function renderSummary({ now, msInRange, dayTotal, dayStatsMap, breakCounter, awayCounter, activeStart, weekStart, monthStart }){
+  function renderSummary({ now, msInRange, dayTotal, dayStatsMap, breakCounter, preSignInCounter, awayCounter, activeStart, weekStart, monthStart }){
     const daysOff = getDaysOff();
-    const ctx = { now, msInRange, dayTotal, dayStatsMap, breakCounter, awayCounter, activeStart, daysOff };
+    const ctx = { now, msInRange, dayTotal, dayStatsMap, breakCounter, preSignInCounter, awayCounter, activeStart, daysOff };
     const wk = summarizePeriod(weekStart, addDays(weekStart, 7), ctx);
     const mo = summarizePeriod(monthStart, new Date(now.getFullYear(), now.getMonth()+1, 1), ctx);
     const hasTarget = dailyTargetMs() > 0;
@@ -1732,12 +1754,13 @@
         case 'ontime': return r.arrivalsCounted ? `${r.onTime} of ${plural(r.arrivalsCounted,'day')}` : '&mdash;';
         case 'early': return r.departuresCounted ? (r.leftEarly ? `<span class="val-warn">${plural(r.leftEarly,'day')}</span>` : 'None') : '&mdash;';
         case 'breaks': return r.breaks >= 60000 ? fmtHM(r.breaks) : 'None';
+        case 'presignin': return r.preSignIn >= 60000 ? fmtHM(r.preSignIn) : 'None';
         case 'away': return r.away >= 60000 ? fmtHM(r.away) : 'None';
         case 'weekend': return r.weekendDays ? `${plural(r.weekendDays,'day')}<span class="sub">${fmtHM(r.weekendMs)}</span>` : 'None';
       }
     };
     const add = (label, kind, sub) => rows.push(`<tr><td>${label}${sub ? `<span class="sub">${sub}</span>` : ''}</td><td>${cell(wk,kind)}</td><td>${cell(mo,kind)}</td></tr>`);
-    add('Hours worked', 'worked', 'includes class / meeting time');
+    add('Hours worked', 'worked', 'includes class / meeting time and time before signing in');
     add('Target', 'target');
     add('Still needed', 'left');
     add('Ahead or behind', 'balance', 'compared with your target, finished days only');
@@ -1746,6 +1769,7 @@
     if(startH != null) add(`On time`, 'ontime', `arrived by ${fmtClock(startH + GRACE_H)}`);
     if(endH != null) add('Left early', 'early', `left before ${fmtClock(endH - GRACE_H)}`);
     add('Class / meeting time', 'breaks', 'PC locked, then you came back');
+    add('Before signing in', 'presignin', 'PC switched on, you signed in later');
     add('Marked away', 'away', 'not counted');
     add('Weekend work', 'weekend');
     document.getElementById('summaryBody').innerHTML = rows.join('');
@@ -1781,8 +1805,9 @@
       const st = dayStatsMap.get(dateKey(d)), total = dayTotal(d);
       if(!st || total <= 0) continue;
       const brk = breakCounter(+d, +addDays(d,1));
+      const pre = preSignInCounter(+d, +addDays(d,1));
       const out = dateKey(st.departure) === dateKey(d) ? fmtClock(hourFloat(st.departure)) : 'after midnight';
-      notes.push({ text: `Last day worked (${dShort(d)}): arrived <span class="hl">${fmtClock(hourFloat(st.arrival))}</span>, left <span class="hl">${out}</span>, <span class="hl">${fmtHM(total)}</span> in total${brk >= 60000 ? `, including ${fmtHM(brk)} of class / meeting time` : ''}.` });
+      notes.push({ text: `Last day worked (${dShort(d)}): started <span class="hl">${fmtClock(hourFloat(st.arrival))}</span>, left <span class="hl">${out}</span>, <span class="hl">${fmtHM(total)}</span> in total${[pre >= 60000 ? `${fmtHM(pre)} before you signed in` : '', brk >= 60000 ? `${fmtHM(brk)} of class / meeting time` : ''].filter(Boolean).map((x,i,a)=> (i===0 ? ', including ' : ' and ') + x).join('')}.` });
       break;
     }
 

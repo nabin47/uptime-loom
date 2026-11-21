@@ -44,6 +44,18 @@ Forgot to use the shortcut? Click **− Mark away** in the dashboard's session
 log and enter the time range you were out — it's subtracted from your
 totals.
 
+### Switching the PC on and signing in later
+
+In a rush in the morning? Switch the PC on and sign in when you get to it.
+The time from switching on counts. Without administrator rights nothing
+can run before you sign in, so when you do, Uptime Loom checks Windows'
+own record of when the PC was switched on (or woke from sleep) and counts
+from then. The same rules as a locked PC apply: it only counts once you
+sign in, and only up to the locked-time cap (4 hours by default). A PC that
+wakes at night for updates, with nobody signing in, never counts.
+If you switch the PC on and never sign in that day, nothing is recorded.
+Add that time with **+ Add session** if needed.
+
 The dashboard (`dashboard.html`) is a single self-contained HTML file that
 reads that CSV and reconstructs your work sessions, then renders stats and
 charts. It runs entirely in your browser — nothing is uploaded anywhere.
@@ -328,7 +340,8 @@ Timestamp,State
 ...
 ```
 
-`State` is `active` (unlocked) or `locked`. Logs from older versions have no
+`State` is `active` (unlocked), `locked`, or `boot`: when the PC was
+switched on or woke up, written once you sign in. Logs from older versions have no
 state column; those lines are treated as `active`.
 
 The dashboard reconstructs sessions by finding gaps larger than 3 minutes

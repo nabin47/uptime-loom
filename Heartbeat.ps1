@@ -4,7 +4,8 @@
 # whether the workstation was unlocked ("active") or locked ("locked").
 # When the PC turns off or sleeps, heartbeats simply stop -- the last one
 # recorded is treated as the moment that session ended (accurate to within
-# ~1 minute).
+# ~1 minute). When you sign in, it also records when the PC was switched on
+# ("boot"), so the time before you signed in can count too.
 #
 # Locking the screen does NOT stop the clock by itself: a class or meeting
 # you lock your PC for still counts, as long as you come back and unlock it
@@ -172,6 +173,49 @@ function Test-WorkstationLocked {
     }
 }
 
+$Invariant = [cultureinfo]::InvariantCulture
+
+# --- When was the PC switched on? ---
+# Nothing can run before you sign in without administrator rights, so when
+# this script starts (right after sign-in) it looks up when the PC was
+# switched on or woke from sleep, using Windows' own System event log
+# (readable by normal users). If that's later than the last heartbeat, a
+# "boot" line is added at that time; the dashboard then counts the time you
+# spent getting to the PC (within the locked-time cap).
+function Get-PowerOnTime {
+    $since = (Get-Date).AddHours(-16)
+    $times = @()
+    try {
+        $events = Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = @(1, 12, 27, 107); StartTime = $since } -ErrorAction Stop
+        foreach ($e in $events) {
+            $isPowerOn = ($e.Id -eq 12  -and $e.ProviderName -eq 'Microsoft-Windows-Kernel-General') -or       # OS started
+                         ($e.Id -eq 27  -and $e.ProviderName -eq 'Microsoft-Windows-Kernel-Boot') -or          # boot (incl. fast startup)
+                         ($e.Id -eq 107 -and $e.ProviderName -eq 'Microsoft-Windows-Kernel-Power') -or         # resumed from sleep
+                         ($e.Id -eq 1   -and $e.ProviderName -eq 'Microsoft-Windows-Power-Troubleshooter')     # woke from low power
+            if ($isPowerOn) { $times += $e.TimeCreated }
+        }
+    } catch { }   # no matching events, or the log can't be read
+    try {
+        $boot = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
+        if ($boot -gt $since) { $times += $boot }
+    } catch { }
+    if ($times.Count -eq 0) { return $null }
+    return ($times | Sort-Object | Select-Object -Last 1)
+}
+
+function Get-LastHeartbeat {
+    try {
+        $last = $null
+        foreach ($line in (Get-Content -LiteralPath $LogFile -Tail 20 -ErrorAction Stop)) {
+            if ($line -match '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})') {
+                $t = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', $Invariant)
+                if ($null -eq $last -or $t -gt $last) { $last = $t }
+            }
+        }
+        return $last
+    } catch { return $null }
+}
+
 # --- Diagnose mode ---
 if ($Diagnose) {
     $out = "$LogFolder\lock_diagnose.txt"
@@ -181,6 +225,10 @@ if ($Diagnose) {
     $header = "Uptime Loom lock diagnostics -- $(Get-Date) -- Windows $winVer -- session $MySessionId -- detector loaded: $typeLoaded -- $($ExecutionContext.SessionState.LanguageMode)"
     $header | Out-File -FilePath $out -Encoding UTF8
     Write-Host $header
+    $po = Get-PowerOnTime
+    $poLine = "Last switched on / woke up: $(if ($po) { $po.ToString('yyyy-MM-dd HH:mm:ss', $Invariant) } else { 'not found' })"
+    Add-Content -Path $out -Value $poLine -Encoding UTF8
+    Write-Host $poLine
     Write-Host "Press Win+L now, wait ~30 seconds, then unlock. Running for 90 seconds..."
     $end = (Get-Date).AddSeconds(90)
     while ((Get-Date) -lt $end) {
@@ -215,7 +263,18 @@ if (-not (Test-Path $LogFile)) {
     "Timestamp,State" | Out-File -FilePath $LogFile -Encoding UTF8
 }
 
-$Invariant = [cultureinfo]::InvariantCulture
+# Record when the PC was switched on, if that happened after the last
+# heartbeat (i.e. you turned it on and signed in later).
+try {
+    $powerOn = Get-PowerOnTime
+    if ($powerOn) {
+        $lastBeat = Get-LastHeartbeat
+        $gapSec = ((Get-Date) - $powerOn).TotalSeconds
+        if ($gapSec -gt 90 -and ($null -eq $lastBeat -or $powerOn -gt $lastBeat)) {
+            Add-Content -Path $LogFile -Value ("{0},boot" -f $powerOn.ToString('yyyy-MM-dd HH:mm:ss', $Invariant)) -Encoding UTF8
+        }
+    }
+} catch { }
 
 # Interval bookkeeping uses UTC so DST changes don't affect it; the value
 # written to the log stays local wall-clock time, as the dashboard expects.
