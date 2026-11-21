@@ -5,7 +5,7 @@
 # Normal locking (Win+L) for a class or meeting still counts as office time;
 # use this instead only when the time away shouldn't count.
 #
-# Setup creates a shortcut for this ("Uptime Loom - Going out") on your
+# Install.cmd creates a shortcut for this ("Uptime Loom - Going out") on your
 # Desktop and in the Start menu, with the hotkey Ctrl+Alt+G.
 # No admin rights needed.
 
@@ -23,4 +23,4 @@ if (-not (Test-Path $LogFolder)) {
 # tracking while you're still at the PC.
 rundll32.exe user32.dll,LockWorkStation
 Start-Sleep -Seconds 2
-(Get-Date).ToString("yyyy-MM-dd HH:mm:ss") | Out-File -FilePath $AwayFlag -Encoding UTF8 -Force
+(Get-Date).ToString("yyyy-MM-dd HH:mm:ss", [cultureinfo]::InvariantCulture) | Out-File -FilePath $AwayFlag -Encoding UTF8 -Force

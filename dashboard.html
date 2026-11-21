@@ -367,7 +367,7 @@
   </header>
 
   <div class="load-panel">
-    <div class="info" id="fileHint">Load <strong>your UptimeLoom folder</strong> (e.g. <strong>C:\Users\&lt;you&gt;\UptimeLoom\</strong>) &middot; auto-syncs every 15s in Chrome/Edge</div>
+    <div class="info" id="fileHint">Click <strong>Load folder</strong> and choose <strong>C:\Users\&lt;you&gt;\UptimeLoom</strong> &middot; only needed once in Chrome/Edge</div>
     <div>
       <button id="loadBtn" class="btn-primary">Load folder</button>
       <button id="refreshBtn" style="display:none;">Refresh now</button>
@@ -528,15 +528,14 @@
   </div>
 
   <div id="emptyState" class="empty-state">
-    No data loaded yet.<br>
-    Click <strong>"Load folder"</strong> and select your<br>
-    <span id="emptyPath">UptimeLoom</span> folder (the one containing<br>
-    <strong>heartbeat_log.csv</strong>)<br><br>
-    A heartbeat script writes a timestamp every minute while you're logged in &mdash;<br>
-    this page reconstructs sessions and analysis from those timestamps.<br><br>
-    In Chrome or Edge, the dashboard keeps syncing automatically after you<br>
-    load the folder once, and any manual corrections you make are saved to<br>
-    <strong>corrections.json</strong> in that same folder.
+    <strong>Welcome to Uptime Loom.</strong><br><br>
+    Click <strong>"Load folder"</strong> above and choose your <strong>UptimeLoom</strong> folder<br>
+    (<strong>C:\Users\&lt;you&gt;\UptimeLoom</strong> &mdash; right after installing, its path is<br>
+    already copied: paste it into the folder box with <strong>Ctrl+V</strong>).<br><br>
+    In Chrome or Edge you only do this once: the page remembers the folder<br>
+    and keeps itself up to date. In other browsers, drag <strong>heartbeat_log.csv</strong><br>
+    from that folder onto this page.<br><br>
+    Nothing there yet? Run <strong>Install.cmd</strong> first.
   </div>
 
   <footer>Data stays in your browser tab &mdash; nothing is uploaded anywhere.<br>Sessions are inferred from heartbeat gaps &gt; 3 minutes; locked breaks count when you come back to the PC. Manual corrections are stored locally and never change the original CSV.<br><br>&copy; 2026 Jubair Ahmed Nabin &middot; Uptime Loom</footer>
@@ -607,20 +606,97 @@
   let csvFileHandle = null;
   let autoRefreshInterval = null;
 
+  // ---- remembering the folder between visits (Chrome/Edge) ----
+  // The folder handle is kept in this browser's IndexedDB, so next time the
+  // dashboard reconnects by itself (if the browser kept the permission) or
+  // with a single click -- no folder picking again.
+  function idb(){
+    return new Promise((resolve, reject)=>{
+      const r = indexedDB.open('uptimeLoom', 1);
+      r.onupgradeneeded = ()=> r.result.createObjectStore('kv');
+      r.onsuccess = ()=> resolve(r.result);
+      r.onerror = ()=> reject(r.error);
+    });
+  }
+  async function idbGet(key){
+    const db = await idb();
+    return new Promise((resolve, reject)=>{
+      const q = db.transaction('kv').objectStore('kv').get(key);
+      q.onsuccess = ()=> resolve(q.result);
+      q.onerror = ()=> reject(q.error);
+    });
+  }
+  async function idbSet(key, value){
+    const db = await idb();
+    return new Promise((resolve, reject)=>{
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(value, key);
+      tx.oncomplete = ()=> resolve();
+      tx.onerror = ()=> reject(tx.error);
+    });
+  }
+  let savedHandle = null; // remembered folder waiting for a click to reconnect
+
+  async function connectFolder(handle){
+    // Accept either the UptimeLoom folder itself or its parent (e.g. the
+    // user picked C:\Users\<you> instead of C:\Users\<you>\UptimeLoom).
+    let dir = handle, csv = null;
+    try{ csv = await dir.getFileHandle('heartbeat_log.csv'); }
+    catch(e){
+      if(e && e.name !== 'NotFoundError') throw e;
+      try{
+        dir = await handle.getDirectoryHandle('UptimeLoom');
+        csv = await dir.getFileHandle('heartbeat_log.csv');
+      }catch(e2){ throw Object.assign(new Error('notfound'), { name: 'NotFoundError' }); }
+    }
+    dirHandle = dir;
+    csvFileHandle = csv;
+    try{ await idbSet('dir', dir); }catch(e){}
+    savedHandle = null;
+    await readFromHandle(true);
+    startAutoRefresh();
+  }
+
   async function loadViaFSAccess(){
     try{
-      dirHandle = await window.showDirectoryPicker({ id: 'uptimeLoom' });
-      csvFileHandle = await dirHandle.getFileHandle('heartbeat_log.csv');
-      await readFromHandle(true);
-      startAutoRefresh();
+      // Reconnect to the remembered folder if there is one.
+      if(savedHandle){
+        const perm = await savedHandle.requestPermission({ mode: 'read' });
+        if(perm === 'granted'){ await connectFolder(savedHandle); return; }
+      }
+      const picked = await window.showDirectoryPicker({ id: 'uptimeLoom' });
+      await connectFolder(picked);
     }catch(err){
       if(err && err.name === 'NotFoundError'){
         dirHandle = null;
         csvFileHandle = null;
-        alert('Couldn\'t find heartbeat_log.csv in that folder. Select your UptimeLoom folder (the one containing heartbeat_log.csv).');
+        alert('Couldn\'t find heartbeat_log.csv in that folder.\n\nChoose the UptimeLoom folder inside your user folder (C:\\Users\\<you>\\UptimeLoom). If it isn\'t there, run Install.cmd first.');
       }
       // otherwise the user just cancelled the picker -- do nothing
     }
+  }
+
+  async function restoreSavedFolder(){
+    if(!supportsFSAccess || !window.indexedDB) return;
+    let handle = null;
+    try{ handle = await idbGet('dir'); }catch(e){ return; }
+    if(!handle || typeof handle.queryPermission !== 'function') return;
+    try{
+      if(await handle.queryPermission({ mode: 'read' }) === 'granted'){
+        await connectFolder(handle);   // browser kept access: load right away
+        return;
+      }
+    }catch(e){ return; }
+    // Needs one click (browsers only ask for permission after a click).
+    savedHandle = handle;
+    loadBtn.textContent = `Reconnect to ${handle.name}`;
+    fileHint.innerHTML = `Click <strong>Reconnect</strong> to load your data again &middot; <a href="#" id="pickOtherLink">choose a different folder</a>`;
+    document.getElementById('pickOtherLink').addEventListener('click', (e)=>{
+      e.preventDefault();
+      savedHandle = null;
+      loadBtn.textContent = 'Load folder';
+      loadViaFSAccess();
+    });
   }
 
   let readInFlight = false;
@@ -640,7 +716,8 @@
       }
       fileHint.innerHTML = `<strong>${escapeHtml(file.name)}</strong> &middot; live &middot; last synced ${new Date().toLocaleTimeString()}`;
     }catch(err){
-      fileHint.textContent = 'Lost access to the folder -- click Load folder to reconnect.';
+      fileHint.textContent = 'Lost access to the folder -- click Reconnect to load it again.';
+      if(dirHandle){ savedHandle = dirHandle; loadBtn.textContent = `Reconnect to ${dirHandle.name}`; }
       stopAutoRefresh();
       loadBtn.style.display = 'inline-block';
       refreshBtn.style.display = 'none';
@@ -667,7 +744,12 @@
   });
 
   fileInput.addEventListener('change', (e)=>{
-    const file = e.target.files[0];
+    loadCsvFile(e.target.files[0]);
+    // Allow re-selecting the same file on the next Refresh.
+    fileInput.value = '';
+  });
+
+  function loadCsvFile(file){
     if(!file) return;
     const reader = new FileReader();
     reader.onload = (evt)=>{
@@ -679,9 +761,17 @@
       fileHint.innerHTML = `Loaded <strong>${escapeHtml(file.name)}</strong> &middot; updated ${new Date(file.lastModified).toLocaleString()} &middot; <span style="color:var(--warn);">click Refresh to update (this browser doesn't support live sync or file-based corrections)</span>`;
     };
     reader.readAsText(file);
-    // Allow re-selecting the same file on the next Refresh.
-    fileInput.value = '';
+  }
+
+  // Drag and drop heartbeat_log.csv anywhere on the page (handy in browsers
+  // without folder access, e.g. Firefox).
+  document.addEventListener('dragover', (e)=>{ e.preventDefault(); });
+  document.addEventListener('drop', (e)=>{
+    e.preventDefault();
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if(file && /\.csv$/i.test(file.name)) loadCsvFile(file);
   });
+  restoreSavedFolder();
 
   // Timestamps are written as local wall-clock time ("yyyy-MM-dd HH:mm:ss"),
   // optionally followed by ",active" or ",locked". Older logs have no state
@@ -689,7 +779,9 @@
   // local time instead of relying on the browser's Date string parser, and
   // skip anything that isn't a timestamp (header, BOM, blank or
   // partially-written lines).
-  const TS_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?\s*(?:,\s*"?(\w+)"?)?/;
+  // ("." is also accepted as the time separator: older versions could write
+  // it on PCs with some regional settings.)
+  const TS_RE = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2})[:.](\d{2})(?:[:.](\d{2}))?\s*(?:,\s*"?(\w+)"?)?/;
   function parseCSV(text){
     const lines = text.replace(/^﻿/, '').split(/\r?\n/);
     const parsed = [];

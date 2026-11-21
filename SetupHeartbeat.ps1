@@ -1,134 +1,249 @@
-# SetupHeartbeat.ps1
-# Run this ONCE as your normal user -- no admin rights needed.
-# Right-click -> "Run with PowerShell", or from a normal (non-admin)
-# PowerShell prompt: .\SetupHeartbeat.ps1
+# SetupHeartbeat.ps1 -- Uptime Loom installer / uninstaller.
+#
+# You don't need to run this file directly: double-click Install.cmd (or
+# Uninstall.cmd) instead. Those run this script in a way that works even
+# when PowerShell scripts are blocked or open in Notepad when double-clicked.
+#
+# No administrator rights are needed: everything goes into your own user
+# profile (C:\Users\<you>\UptimeLoom, your Startup folder, Desktop and
+# Start menu).
+#
+# Written to also work on locked-down PCs (Group Policy execution policy,
+# PowerShell "Constrained Language Mode"): every step that might be blocked
+# has a simpler fallback, and a log of the run is saved to
+# UptimeLoom\install-log.txt.
+
+param(
+    [switch]$Uninstall,
+    [string]$SourceDir
+)
 
 $ErrorActionPreference = 'Stop'
 
-# Resolve files relative to this script, not the current directory, so setup
-# works no matter where it's launched from.
-$SourceDir   = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-$LogFolder   = "$env:USERPROFILE\UptimeLoom"
-$ScriptPath  = "$LogFolder\Heartbeat.ps1"
-$StartupDir  = [Environment]::GetFolderPath('Startup')
-$ShortcutPath = "$StartupDir\UptimeLoom.lnk"
-$GoingOutPath = "$LogFolder\GoingOut.ps1"
-$GoingOutLinks = @(
-    (Join-Path ([Environment]::GetFolderPath('Desktop'))  'Uptime Loom - Going out.lnk'),
-    (Join-Path ([Environment]::GetFolderPath('Programs')) 'Uptime Loom - Going out.lnk')
-)
+# ---------------------------------------------------------------- paths --
+if (-not $SourceDir) {
+    if ($env:UL_SRC)       { $SourceDir = $env:UL_SRC }
+    elseif ($PSScriptRoot) { $SourceDir = $PSScriptRoot }
+    else                   { $SourceDir = (Get-Location).Path }
+}
+$SourceDir = $SourceDir.TrimEnd('\')
+$AppDir    = Join-Path $env:USERPROFILE 'UptimeLoom'
 
-function Exit-WithPause([int]$code) {
-    # "Run with PowerShell" closes the window immediately; keep it open so
-    # the output can actually be read.
-    if ($Host.Name -eq 'ConsoleHost') {
-        Write-Host ""
-        Read-Host "Press Enter to close" | Out-Null
-    }
-    exit $code
+function Get-KnownFolder([string]$Name, [string]$Fallback) {
+    try {
+        $p = [Environment]::GetFolderPath($Name)
+        if ($p) { return $p }
+    } catch { }
+    return $Fallback
+}
+$StartupDir  = Get-KnownFolder 'Startup'  "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+$ProgramsDir = Get-KnownFolder 'Programs' "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
+$DesktopDir  = Get-KnownFolder 'Desktop'  "$env:USERPROFILE\Desktop"
+
+# Everything this installer may create (old and new names), so updates and
+# uninstall can clean up reliably.
+$StartupLnk     = Join-Path $StartupDir  'UptimeLoom.lnk'
+$StartupCmd     = Join-Path $StartupDir  'UptimeLoom.cmd'
+$DashLnk        = Join-Path $DesktopDir  'Uptime Loom.lnk'
+$DashUrl        = Join-Path $DesktopDir  'Uptime Loom.url'
+$GoOutLnk       = Join-Path $DesktopDir  'Uptime Loom - Going out.lnk'
+$GoOutCmd       = Join-Path $DesktopDir  'Uptime Loom - Going out.cmd'
+$MenuDashLnk    = Join-Path $ProgramsDir 'Uptime Loom.lnk'
+$MenuGoOutLnk   = Join-Path $ProgramsDir 'Uptime Loom - Going out.lnk'
+
+# ------------------------------------------------------------- helpers --
+function Say([string]$Text)  { Write-Host "  $Text" }
+function Ok([string]$Text)   { Write-Host "  [OK]   $Text" -ForegroundColor Green }
+function Warn([string]$Text) { Write-Host "  [!]    $Text" -ForegroundColor Yellow }
+function Fail([string]$Text) { Write-Host "  [X]    $Text" -ForegroundColor Red }
+
+# Command line that runs one of our scripts hidden. The script's text is
+# loaded and run as a script block instead of with -File, so it works even
+# when a policy blocks running .ps1 files. Uses %USERPROFILE% at run time,
+# so paths with spaces or apostrophes are never a problem.
+function Get-LaunchArgs([string]$ScriptName, [string]$ExtraArgs = '') {
+    return "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"& ([scriptblock]::Create((Get-Content -LiteralPath (Join-Path `$env:USERPROFILE 'UptimeLoom\$ScriptName') -Raw -Encoding UTF8)))$ExtraArgs`""
 }
 
-try {
-    $SourceScript = Join-Path $SourceDir 'Heartbeat.ps1'
-    if (-not (Test-Path $SourceScript)) {
-        Write-Host "Couldn't find Heartbeat.ps1 next to this setup script ($SourceDir)." -ForegroundColor Red
-        Write-Host "Keep Heartbeat.ps1, SetupHeartbeat.ps1 and dashboard.html together in one folder and try again."
-        Exit-WithPause 1
-    }
+function New-Shortcut {
+    param([string]$Path, [string]$Target, [string]$Arguments = '', [string]$Description = '',
+          [string]$Hotkey = '', [string]$Icon = '', [int]$WindowStyle = 1)
+    $shell = New-Object -ComObject WScript.Shell
+    $sc = $shell.CreateShortcut($Path)
+    $sc.TargetPath = $Target
+    if ($Arguments)   { $sc.Arguments = $Arguments }
+    $sc.WorkingDirectory = $AppDir
+    $sc.WindowStyle = $WindowStyle
+    if ($Description) { $sc.Description = $Description }
+    if ($Icon)        { $sc.IconLocation = $Icon }
+    if ($Hotkey)      { $sc.Hotkey = $Hotkey }
+    $sc.Save()
+}
 
-    # 1. Make sure the folder exists and copy the heartbeat script there
-    if (-not (Test-Path $LogFolder)) {
-        New-Item -ItemType Directory -Path $LogFolder | Out-Null
-    }
-    $sameFolder = (Resolve-Path $SourceDir).Path.TrimEnd('\') -ieq (Resolve-Path $LogFolder).Path.TrimEnd('\')
-    if (-not $sameFolder) {
-        Copy-Item -Path $SourceScript -Destination $ScriptPath -Force
-    }
-
-    # 2. Copy the dashboard next to it too, for convenience
-    $SourceDashboard = Join-Path $SourceDir 'dashboard.html'
-    if ((Test-Path $SourceDashboard) -and -not $sameFolder) {
-        Copy-Item -Path $SourceDashboard -Destination "$LogFolder\dashboard.html" -Force
-    }
-
-    # 2b. The one-click "Going out" script (lock + mark away)
-    $SourceGoingOut = Join-Path $SourceDir 'GoingOut.ps1'
-    if ((Test-Path $SourceGoingOut) -and -not $sameFolder) {
-        Copy-Item -Path $SourceGoingOut -Destination $GoingOutPath -Force
-    }
-
-    # Copies keep the downloaded file's "Mark of the Web"; clear it on the
-    # installed copies (you've already chosen to run this setup).
-    foreach ($f in @($ScriptPath, $GoingOutPath, "$LogFolder\dashboard.html")) {
-        if (Test-Path $f) { Unblock-File -Path $f -ErrorAction SilentlyContinue }
-    }
-
-    # 3. Create a shortcut in the Startup folder that runs the script hidden,
-    #    with no console window popping up.
-    $WScriptShell = New-Object -ComObject WScript.Shell
-    $Shortcut = $WScriptShell.CreateShortcut($ShortcutPath)
-    $Shortcut.TargetPath = "powershell.exe"
-    $Shortcut.Arguments  = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`""
-    $Shortcut.WorkingDirectory = $LogFolder
-    $Shortcut.WindowStyle = 7   # 7 = minimized/hidden
-    $Shortcut.Description = "Uptime Loom Heartbeat Logger"
-    $Shortcut.Save()
-
-    # 4. "Going out" shortcuts on the Desktop and in the Start menu. The
-    #    hotkey (Ctrl+Alt+G) works for shortcuts in either location.
-    if (Test-Path $GoingOutPath) {
-        $hotkeyAssigned = $false
-        foreach ($link in $GoingOutLinks) {
-            $sc = $WScriptShell.CreateShortcut($link)
-            $sc.TargetPath = "powershell.exe"
-            $sc.Arguments  = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$GoingOutPath`""
-            $sc.WorkingDirectory = $LogFolder
-            $sc.WindowStyle = 7
-            $sc.IconLocation = "$env:SystemRoot\System32\shell32.dll,44"
-            $sc.Description = "Lock the PC and stop counting time until you're back (e.g. going off campus)"
-            # Assign the hotkey to only one shortcut so they don't compete.
-            if (-not $hotkeyAssigned) { $sc.Hotkey = "CTRL+ALT+G"; $hotkeyAssigned = $true }
-            $sc.Save()
+function Remove-IfExists([string[]]$Paths) {
+    foreach ($p in $Paths) {
+        if ($p -and (Test-Path -LiteralPath $p)) {
+            Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
         }
     }
+}
+
+# Stop any running heartbeat logger (older or current version) so the new
+# one takes over straight away -- no need to log off.
+function Stop-Heartbeat {
+    $stopped = 0
+    try {
+        $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction Stop |
+            Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'UptimeLoom\\Heartbeat\.ps1' }
+        foreach ($p in $procs) {
+            try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; $stopped++ } catch { }
+        }
+    } catch { }
+    return $stopped
+}
+
+function Start-Heartbeat {
+    Start-Process -FilePath 'powershell.exe' -ArgumentList (Get-LaunchArgs 'Heartbeat.ps1') -WindowStyle Hidden -WorkingDirectory $AppDir
+}
+
+$WinPS = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+if (-not (Test-Path -LiteralPath $WinPS)) { $WinPS = 'powershell.exe' }
+
+Write-Host ""
+Write-Host "  Uptime Loom" -ForegroundColor Cyan
+Write-Host "  -----------" -ForegroundColor Cyan
+Write-Host ""
+
+# ------------------------------------------------------------ uninstall --
+if ($Uninstall) {
+    $n = Stop-Heartbeat
+    if ($n -gt 0) { Ok "Stopped the background logger." } else { Say "The background logger wasn't running." }
+    Remove-IfExists @($StartupLnk, $StartupCmd, $DashLnk, $DashUrl, $GoOutLnk, $GoOutCmd, $MenuDashLnk, $MenuGoOutLnk,
+                      (Join-Path $AppDir 'away.flag'))
+    Ok "Removed the startup entry and shortcuts."
+    Write-Host ""
+    Say "Your tracked data has been kept in:"
+    Say "  $AppDir"
+    Say "Delete that folder if you don't need it any more."
+    return
+}
+
+# -------------------------------------------------------------- install --
+$transcript = $false
+try {
+    if (-not (Test-Path -LiteralPath $AppDir)) { New-Item -ItemType Directory -Path $AppDir | Out-Null }
+    try { Start-Transcript -LiteralPath (Join-Path $AppDir 'install-log.txt') -Force | Out-Null; $transcript = $true } catch { }
+
+    $mode = $ExecutionContext.SessionState.LanguageMode
+    $psv  = $PSVersionTable.PSVersion
+    Write-Host "  (PowerShell $psv, $mode, installing from $SourceDir)" -ForegroundColor DarkGray
+
+    # 1. Check the downloaded files are all here.
+    $needed  = @('Heartbeat.ps1', 'GoingOut.ps1', 'dashboard.html', 'SetupHeartbeat.ps1')
+    $missing = @($needed | Where-Object { -not (Test-Path -LiteralPath (Join-Path $SourceDir $_)) })
+    if ($missing.Count -gt 0) {
+        Fail "Missing file(s) next to Install.cmd: $($missing -join ', ')"
+        Say  "Extract the whole ZIP first (right-click > Extract All), then run Install.cmd again."
+        exit 1
+    }
+
+    # 2. Stop an already-running logger (update / reinstall).
+    $n = Stop-Heartbeat
+    if ($n -gt 0) { Ok "Stopped the previous version of the logger." }
+
+    # 3. Copy the program files into C:\Users\<you>\UptimeLoom.
+    $same = $false
+    try { $same = ((Resolve-Path -LiteralPath $SourceDir).Path.TrimEnd('\') -ieq (Resolve-Path -LiteralPath $AppDir).Path.TrimEnd('\')) } catch { }
+    if (-not $same) {
+        foreach ($f in @($needed + @('Install.cmd', 'Uninstall.cmd', 'README.md'))) {
+            $src = Join-Path $SourceDir $f
+            if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $AppDir $f) -Force }
+        }
+    }
+    # Clear the "downloaded from the internet" mark on the installed copies.
+    Get-ChildItem -LiteralPath $AppDir -File | ForEach-Object {
+        try { Unblock-File -LiteralPath $_.FullName -ErrorAction Stop } catch { }
+    }
+    Ok "Installed to $AppDir"
+
+    # 4. Start automatically at every login (Startup folder, no admin).
+    Remove-IfExists @($StartupLnk, $StartupCmd)
+    try {
+        New-Shortcut -Path $StartupLnk -Target $WinPS -Arguments (Get-LaunchArgs 'Heartbeat.ps1') `
+            -Description 'Uptime Loom background logger' -WindowStyle 7
+    } catch {
+        # Shortcuts can't be created on some locked-down PCs; a small batch
+        # file in the Startup folder does the same job.
+        "@echo off`r`nstart `"`" /min `"$WinPS`" $(Get-LaunchArgs 'Heartbeat.ps1')`r`n" |
+            Out-File -LiteralPath $StartupCmd -Encoding ASCII
+    }
+    Ok "Logging will start automatically every time you sign in."
+
+    # 5. Shortcuts: dashboard + "Going out" (Desktop and Start menu).
+    $dashboard = Join-Path $AppDir 'dashboard.html'
+    $lockIcon  = "$env:SystemRoot\System32\shell32.dll,44"
+    $shortcutsOk = $true
+    Remove-IfExists @($DashLnk, $DashUrl, $GoOutLnk, $GoOutCmd, $MenuDashLnk, $MenuGoOutLnk)
+    try {
+        New-Shortcut -Path $DashLnk     -Target $dashboard -Description 'Open the Uptime Loom dashboard'
+        New-Shortcut -Path $MenuDashLnk -Target $dashboard -Description 'Open the Uptime Loom dashboard'
+        New-Shortcut -Path $GoOutLnk    -Target $WinPS -Arguments (Get-LaunchArgs 'GoingOut.ps1') -WindowStyle 7 `
+            -Icon $lockIcon -Hotkey 'CTRL+ALT+G' -Description "Lock the PC and stop counting until you're back (e.g. going off campus)"
+        New-Shortcut -Path $MenuGoOutLnk -Target $WinPS -Arguments (Get-LaunchArgs 'GoingOut.ps1') -WindowStyle 7 `
+            -Icon $lockIcon -Description "Lock the PC and stop counting until you're back (e.g. going off campus)"
+    } catch {
+        $shortcutsOk = $false
+        Remove-IfExists @($DashLnk, $GoOutLnk, $MenuDashLnk, $MenuGoOutLnk)
+        "[InternetShortcut]`r`nURL=file:///$($dashboard -replace '\\','/')`r`n" | Out-File -LiteralPath $DashUrl -Encoding ASCII
+        "@echo off`r`nstart `"`" /min `"$WinPS`" $(Get-LaunchArgs 'GoingOut.ps1')`r`n" | Out-File -LiteralPath $GoOutCmd -Encoding ASCII
+    }
+    if ($shortcutsOk) {
+        Ok "Added 'Uptime Loom' and 'Uptime Loom - Going out' to your Desktop and Start menu."
+    } else {
+        Ok "Added 'Uptime Loom' and 'Uptime Loom - Going out' to your Desktop."
+        Warn "This PC doesn't allow keyboard shortcuts for them, so Ctrl+Alt+G won't work -- use the Desktop icon."
+    }
+
+    # 6. Start logging right now and check that it actually works.
+    $csv = Join-Path $AppDir 'heartbeat_log.csv'
+    $before = $null
+    if (Test-Path -LiteralPath $csv) { $before = (Get-Item -LiteralPath $csv).LastWriteTimeUtc }
+    Start-Heartbeat
+    $working = $false
+    for ($i = 0; $i -lt 30 -and -not $working; $i++) {
+        Start-Sleep -Milliseconds 500
+        if (Test-Path -LiteralPath $csv) {
+            $after = (Get-Item -LiteralPath $csv).LastWriteTimeUtc
+            if ($null -eq $before -or $after -gt $before) { $working = $true }
+        }
+    }
+    if ($working) {
+        Ok "Logging is running now."
+    } else {
+        Fail "The logger didn't start. Please send install-log.txt from $AppDir to whoever set this up."
+    }
+    if ($mode -ne 'FullLanguage') {
+        Warn "This PC restricts PowerShell ($mode). Tracking works; lock detection uses a simpler check."
+    }
+
+    # 7. Open the dashboard, with the folder path ready to paste.
+    try { Set-Clipboard -Value $AppDir } catch { }
+    try { Start-Process -FilePath $dashboard } catch { }
+    Write-Host ""
+    Write-Host "  All done." -ForegroundColor Cyan
+    Write-Host ""
+    Say "The dashboard is opening in your browser. Click 'Load folder' and choose:"
+    Say "  $AppDir"
+    Say "(That path is already copied -- paste it into the folder box with Ctrl+V.)"
+    Write-Host ""
+    Say "Locking your PC (Win+L) for a class or meeting still counts as work time."
+    Say "Going off campus? Use 'Uptime Loom - Going out' (Ctrl+Alt+G) instead."
+    Say "To remove Uptime Loom later, run Uninstall.cmd in $AppDir"
 } catch {
-    Write-Host "Setup failed: $($_.Exception.Message)" -ForegroundColor Red
-    Exit-WithPause 1
+    Write-Host ""
+    Fail "Setup failed: $($_.Exception.Message)"
+    Say  "Please send install-log.txt from $AppDir to whoever set this up."
+    exit 1
+} finally {
+    if ($transcript) { try { Stop-Transcript | Out-Null } catch { } }
 }
-
-$StartArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`""
-
-Write-Host "Setup complete! No admin rights were used."
-Write-Host ""
-Write-Host "A shortcut was added to your Startup folder:"
-Write-Host "  $ShortcutPath"
-Write-Host "It will silently start logging heartbeats every time you log in."
-Write-Host ""
-Write-Host "Locking your PC (Win+L) for a class or meeting still counts as office time."
-Write-Host "When you leave and the time should NOT count (e.g. going off campus), use"
-Write-Host "the 'Uptime Loom - Going out' shortcut on your Desktop, or press Ctrl+Alt+G."
-Write-Host ""
-Write-Host "Heartbeats will be saved to:"
-Write-Host "  $LogFolder\heartbeat_log.csv"
-Write-Host ""
-
-# Offer to start logging right away. Starting it twice is harmless -- the
-# heartbeat script exits if another copy is already running.
-$startNow = $false
-if ($Host.Name -eq 'ConsoleHost') {
-    $answer = Read-Host "Start logging now without logging off? [Y/n]"
-    $startNow = ($answer -eq '' -or $answer -match '^(y|yes)$')
-}
-if ($startNow) {
-    Start-Process powershell.exe -ArgumentList $StartArgs -WorkingDirectory $LogFolder
-    Write-Host "Logging started."
-} else {
-    Write-Host "To start logging right now WITHOUT restarting, run:"
-    Write-Host "  Start-Process powershell.exe -ArgumentList '$StartArgs'"
-}
-Write-Host ""
-Write-Host "To remove it later: delete the shortcut at"
-Write-Host "  $ShortcutPath"
-Write-Host "and the 'Uptime Loom - Going out' shortcuts on your Desktop and Start menu."
-
-Exit-WithPause 0
