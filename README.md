@@ -1,140 +1,47 @@
 # Uptime Loom
 
-A zero-click, no-admin-required time tracker for Windows 11. It automatically
-logs when your PC is on, and gives you a local analytics dashboard to see
-patterns in your work hours — arrival/departure trends, daily totals, a
-GitHub-style activity heatmap, and more.
+A zero-click, no-admin-required work-hours tracker for Windows. It records
+your time automatically from the moment you switch your PC on. Classes and
+meetings still count when you lock the screen, while time you're actually
+away doesn't. A local dashboard then answers the everyday questions: how
+many hours have I done this week, how much is left, was I on time, which
+days did I miss?
 
-No accounts, no cloud, no installs. Your data never leaves your machine.
+No accounts, no cloud, no admin rights. Your data never leaves your machine.
 
-![status](https://img.shields.io/badge/platform-Windows%2011-0078D6)
+![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![admin](https://img.shields.io/badge/admin%20rights-not%20required-brightgreen)
 
 ---
 
-## How it works
+## Contents
 
-A small PowerShell script (`Heartbeat.ps1`) starts automatically when you log
-in to Windows. Every 60 seconds, it appends a timestamp to a CSV file, tagged
-with whether the PC was unlocked (`active`) or locked (`locked`). When you
-shut down or the PC sleeps, heartbeats simply stop. The **last timestamp
-before a gap** is treated as the moment that session ended, and a new
-session begins the next time a heartbeat is written.
-
-### Locking the PC vs. actually leaving
-
-**Locking your screen (`Win+L`) for a class, meeting or lunch still counts
-as office time** — as long as you come back and unlock the PC afterwards.
-Two safety rules keep this honest:
-
-- **You have to come back.** A locked stretch only counts when it ends with
-  you unlocking the PC. If you lock it and go home, and it later sleeps or
-  just stays locked overnight, that locked time is dropped.
-- **There's a cap.** A single locked stretch counts for at most **4 hours**
-  (changeable in the dashboard, `0` = never count locked time). Longer than
-  that is treated as time away.
-
-**When you leave and the time should *not* count** — e.g. going off campus
-for some work — use the **"Uptime Loom - Going out"** shortcut instead of
-`Win+L` (on your Desktop and in the Start menu, or press **Ctrl+Alt+G**).
-It locks the PC and marks you as away; nothing is logged until you unlock
-again, so that time is excluded exactly like a shutdown.
-
-Forgot to use the shortcut? Click **− Mark away** in the dashboard's session
-log and enter the time range you were out — it's subtracted from your
-totals.
-
-### Switching the PC on and signing in later
-
-In a rush in the morning? Switch the PC on and sign in when you get to it.
-The time from switching on counts. Without administrator rights nothing
-can run before you sign in, so when you do, Uptime Loom checks Windows'
-own record of when the PC was switched on (or woke from sleep) and counts
-from then. The same rules as a locked PC apply: it only counts once you
-sign in, and only up to the locked-time cap (4 hours by default). A PC that
-wakes at night for updates, with nobody signing in, never counts.
-If you switch the PC on and never sign in that day, nothing is recorded.
-Add that time with **+ Add session** if needed.
-
-The dashboard (`dashboard.html`) is a single self-contained HTML file that
-reads that CSV and reconstructs your work sessions, then renders stats and
-charts. It runs entirely in your browser — nothing is uploaded anywhere.
-
-```
-Login  ──▶  Heartbeat.ps1 starts (via Startup folder shortcut)
-              │
-              ▼
-   writes "timestamp,active|locked" every 60s
-              │
-    ┌─────────┼──────────────────────┬──────────────────────┐
-    ▼                                ▼                      ▼
-Win+L (class/meeting)        Going out (Ctrl+Alt+G)   Shutdown/sleep
-logged as "locked";          locks + marks away;      heartbeats stop
-counts if you unlock         heartbeats stop          (not counted)
-again (up to the cap)        until you unlock
-              │
-              ▼
-      open dashboard.html ──▶ load the folder ──▶ see your stats
-```
-
----
-
-## Features
-
-- **Fully automatic** — no clock-in/clock-out button to forget
-- **Manual corrections** — edit, delete, or add sessions directly in the
-  dashboard for the rare case the automatic tracking needs a fix or a note
-- **Classes and meetings still count** — locking the PC (Win+L) doesn't
-  stop the clock as long as you come back and unlock it (up to a 4h cap)
-- **One-click "Going out"** — Ctrl+Alt+G locks the PC and excludes the time
-  until you're back, for when you leave campus
-- **Live auto-sync in Chrome/Edge** — load the CSV once, the dashboard
-  silently keeps itself current from then on
-- **No admin rights needed anywhere** — uses the Startup folder, not Task
-  Scheduler or Group Policy
-- **Local-only data** — a single CSV file on your own disk
-- **Dashboard includes:**
-  - Live "today" timer
-  - This week's and this month's hours, with last week/month "by now" for
-    comparison
-  - How much is left to reach this week's target, and days present this
-    month
-  - Usual arrival and departure time (first in / last out each day)
-  - A plain **Summary** table for this week and this month: hours worked,
-    target, hours still needed (and how much that is per remaining
-    workday), ahead or behind, days present and missed, average per day,
-    on-time arrivals, early departures, class/meeting time, time marked
-    away and weekend work
-  - **Things to know**: short notes only when something needs attention,
-    e.g. how many hours a day you need to hit your target, a workday with
-    no time recorded (with a one-click "Mark as day off"), arriving late
-    repeatedly, or a very long day
-  - 30-day daily hours trend with 7-day rolling average
-  - Weekly totals for the last 12 weeks against your weekly target
-  - "When you work" — average minutes in each hour of the day
-  - Average hours per day worked, by day of week
-  - First-in / last-out chart for recent days
-  - GitHub-style activity heatmap
-  - Session log grouped by day, filterable by period, with CSV export
-  - Light and dark mode
-- **Settings** — choose the first day of the week, which days are your
-  weekend, a weekly hour target, your work hours, and how long a locked
-  break can count
+- [Installation](#installation)
+- [Day to day](#day-to-day)
+- [How time is counted](#how-time-is-counted)
+- [The dashboard](#the-dashboard)
+- [Settings](#settings)
+- [Corrections, days off and time away](#corrections-days-off-and-time-away)
+- [Troubleshooting](#troubleshooting)
+- [Files](#files)
+- [Data format](#data-format)
+- [Privacy](#privacy)
+- [Limitations](#limitations)
 
 ---
 
 ## Installation
 
-No administrator rights needed, and nothing to configure.
+No administrator rights needed.
 
 1. **Download** this repository as a ZIP (green **Code** button → **Download
    ZIP**), then right-click the ZIP → **Extract All…**.
 2. Open the extracted folder and **double-click `Install.cmd`**.
    - If Windows shows *"Windows protected your PC"*, click **More info** →
      **Run anyway**. If it shows *"Open File – Security Warning"*, click
-     **Run**. (This is Windows being careful about any file downloaded from
-     the internet. Both files are short and readable, so look through
-     them first if you like.)
+     **Run**. Windows does this for any file downloaded from the internet.
+     All the files are short and readable, so look through them first if
+     you like.
 3. That's it. The installer:
    - copies Uptime Loom to `C:\Users\<you>\UptimeLoom`
    - starts logging **right away** and checks that it's working
@@ -143,16 +50,19 @@ No administrator rights needed, and nothing to configure.
      (hotkey **Ctrl+Alt+G**) to your Desktop and Start menu
    - opens the dashboard with the folder path already copied, so you just
      click **Load folder** and paste it with **Ctrl+V**
+4. **First time in the dashboard:** open **Settings** and check your weekly
+   target, weekend days and work hours. The defaults are 40 hours, your
+   region's weekend, and 9:00–17:00.
 
 To **update**, download the new version and run `Install.cmd` again. Your
-data and corrections are kept, and the new version takes over immediately.
-You don't need to log off.
+data, corrections and settings are kept, and the new version takes over
+immediately. You don't need to sign out.
 
 To **uninstall**, double-click `Uninstall.cmd` (also in
-`C:\Users\<you>\UptimeLoom`). It stops logging and removes the shortcuts.
-Your data stays in the folder until you delete it.
+`C:\Users\<you>\UptimeLoom`). It stops logging and removes the startup entry
+and shortcuts. Your data stays in the folder until you delete it.
 
-The installer works on locked-down work PCs too. It doesn't depend on
+The installer also works on locked-down work PCs. It doesn't depend on
 PowerShell's script execution policy, and where a step is blocked (for
 example creating shortcuts) it uses a simpler alternative. If anything
 still goes wrong, it says so and saves a log to
@@ -161,93 +71,181 @@ helping you.
 
 ---
 
-## Manual corrections
+## Day to day
 
-Automatic tracking gets it right almost all the time, but sometimes you
-need to step in — you turned the PC off for an errand, or a session's
-boundary is slightly off. The session log at the bottom of the dashboard
-lets you:
+| Situation | What to do | Counted? |
+|---|---|---|
+| Arriving | Switch the PC on. Sign in whenever you get to it | ✅ From when you switched it on* |
+| Class, meeting, lunch | Lock the PC as usual (**Win+L**) | ✅ When you come back and unlock* |
+| Going off campus / leaving for work elsewhere | Use **Uptime Loom - Going out** (**Ctrl+Alt+G**) | ❌ Not until you unlock again |
+| Going home | Shut down, sleep, or just lock | ❌ Nothing after you leave |
+| Leave, holiday, sick day | Mark it as a **Day off** in the dashboard | Not counted as missed |
+| Forgot Ctrl+Alt+G before leaving | **− Mark away** in the dashboard afterwards | ❌ That range is removed |
 
-- **Edit** any session's start/end time and attach a short note
-- **Delete** a session that shouldn't count (e.g. a test run)
-- **Add** a fully manual session for time that was never logged (e.g. the
-  script wasn't running that day)
-- **Mark away** a time range that shouldn't count (e.g. you went off campus
-  but only locked the PC instead of using the Going out shortcut)
-- **Day off** for leave, holidays or sick days. That day isn't counted as
-  a missed workday and the week's and month's targets are lowered to match
-
-**In Chrome or Edge**, when you load your UptimeLoom folder, corrections
-are saved to a `corrections.json` file in that same folder — right next to
-`heartbeat_log.csv`. This means corrections are:
-
-- Durable — they survive closing the tab, clearing browser data, or
-  switching browsers, since they live on disk, not in the browser
-- Portable — open the dashboard on a different machine pointed at the same
-  folder (e.g. via a synced drive) and your corrections come with it
-- Inspectable — it's plain JSON, readable in any text editor if you want
-  to see exactly what's been changed
-
-`heartbeat_log.csv` itself is **never modified** — corrections are always
-a separate overlay applied on top when the dashboard renders, so your raw
-heartbeat data stays intact as ground truth no matter how much you edit.
-
-**In Firefox or other browsers** without File System Access API support,
-corrections fall back to that browser's local storage instead — meaning
-they're specific to that one browser and won't sync anywhere. If you're on
-a browser like this and it matters to you, using Chrome or Edge for the
-dashboard is worth it just for this reason.
+\* Up to 4 hours per stretch by default (changeable in **Settings**).
 
 ---
 
-## Using the dashboard
+## How time is counted
 
-Open **Uptime Loom** from your Desktop or Start menu (it's
-`C:\Users\<you>\UptimeLoom\dashboard.html`, which opens in your browser). The
-first time, click **Load folder** and choose your `UptimeLoom` folder (the
-one containing `heartbeat_log.csv`). Choosing your user folder above it
-works too.
+A small background script (`Heartbeat.ps1`) starts when you sign in. Every
+minute it adds a line to `heartbeat_log.csv`: the time, and whether the PC
+was **active** (unlocked) or **locked**. When the PC is shut down or asleep,
+nothing is written. The dashboard turns these lines into work sessions.
 
-**In Chrome or Edge**, that's the only time you do this. The dashboard
-remembers the folder and re-reads it every 15 seconds; "last synced" in the
-header shows when. Next time you open it, it either loads straight away
-(if you allowed access "on every visit") or shows a one-click
-**Reconnect** button.
+**Locked time counts, with two safety rules.**
 
-**In Firefox or other browsers** without folder access, drag
-`heartbeat_log.csv` from the UptimeLoom folder onto the page (or use
-**Load folder** to pick the file), and click **Refresh** when you want
-newer data.
+- **You have to come back.** A locked stretch only counts if it ends with
+  you unlocking the PC. If you lock it and go home, and it later sleeps or
+  stays locked overnight, that locked time is dropped.
+- **There's a cap.** One locked stretch counts for at most **4 hours** by
+  default. A longer stretch is treated as time away. Set the cap to `0` to
+  never count locked time.
 
-### Settings
+**Time before you sign in counts too, with the same rules.** Without
+administrator rights nothing can run before you sign in. So when you do
+sign in, Uptime Loom checks Windows' own record of when the PC was switched
+on (or woke from sleep) and adds a `boot` line for that time. The time from
+switching on until signing in then counts, as long as you signed in within
+the cap. A PC that wakes at night for updates, with nobody signing in,
+never counts. Waking from sleep to the lock screen and unlocking later
+works the same way.
 
-Open **Settings** at the top of the dashboard to set:
+**Going out stops the clock.** The **Going out** shortcut locks the PC and
+marks you as away. While you're away nothing is logged, so that time is
+excluded exactly like a shutdown. Unlocking ends the away period.
 
-- **Week starts on** — used for "This week", the weekly chart, the activity
-  calendar's columns and the session log's week filters
-- **Weekend days** — any combination (e.g. Friday + Saturday). Every other
-  day is a workday. Weekend days are never counted as missed, and they're
-  shown in grey in the day-of-week chart
-- **Weekly target** — hours per week (0 turns it off). It's split evenly
-  over your workdays (40h over 5 workdays = 8h a day), which gives the
-  monthly target and the "ahead or behind" figure
-- **Work hours** — when your day normally starts and ends (default 9:00 to
-  17:00). Used for "on time" (arrived within 15 minutes of the start) and
-  "left early" (left more than 15 minutes before the end). Clear either
-  field to turn that row off
-- **Locked PC counts up to** — the cap for a single locked break
+```
+Switch on ──▶ (sign in later) ──▶ Heartbeat.ps1 starts, adds a "boot" line
+                                        │
+                                        ▼
+                     writes "time,active" or "time,locked" every minute
+                                        │
+        ┌───────────────────────────────┼───────────────────────────┐
+        ▼                               ▼                           ▼
+ Win+L (class/meeting)        Going out (Ctrl+Alt+G)          Shutdown / sleep
+ logged as "locked";          locks + marks away;             nothing written
+ counts once you unlock       nothing written until           (not counted)
+ (up to the cap)              you unlock
+                                        │
+                                        ▼
+               open the dashboard ──▶ see hours, targets and attendance
+```
 
-The week start and weekend default to your browser's region settings.
-Settings are saved in that browser.
+A gap of more than 3 minutes between lines ends a session. Daily totals are
+split at midnight (a session from 11 PM to 1 AM counts one hour on each
+day), and overlapping time, such as a manual session on top of logged
+time, is only counted once.
 
-### Session log
+---
 
-The log is grouped by day, with each day's total on its header row. Pick a
-period (this/last week, this/last month, last 30 days, all time); only 14
-days are shown at a time, with **Show more** to load further back, so the
-page stays fast however long you've been tracking. **Export** downloads the
-selected period as a CSV (one row per session, plus a daily total) for
-Excel or anywhere else.
+## The dashboard
+
+Open **Uptime Loom** from your Desktop or Start menu. It's
+`C:\Users\<you>\UptimeLoom\dashboard.html` and opens in your browser.
+
+**Loading your data.** The first time, click **Load folder** and choose your
+`UptimeLoom` folder (choosing your user folder above it works too).
+
+- **In Chrome or Edge** you only do this once. The dashboard remembers the
+  folder and re-reads it every 15 seconds ("last synced" in the header
+  shows when). Next time it either loads straight away (if you allowed
+  access "on every visit") or shows a one-click **Reconnect** button.
+- **In Firefox or other browsers**, drag `heartbeat_log.csv` from the
+  UptimeLoom folder onto the page, and click **Refresh** for newer data.
+
+**What's on it, from top to bottom:**
+
+- **Today**: a live timer, when you started, and the current status:
+  - **Active**: the PC is unlocked.
+  - **Locked · counting**: the PC is locked, and it shows the time by which
+    you need to unlock for the break to count.
+  - **Not active**: the PC is off, asleep, or you're away.
+- **Quick stats**:
+  - Hours this week and this month, with last week/month "by now" for
+    comparison
+  - **Left this week** (hours still needed for your target)
+  - **Days present** this month
+  - **Usual arrival** and **usual departure** (average of the last 10 days)
+- **Summary**: this week and this month side by side. Each row:
+
+  | Row | Meaning |
+  |---|---|
+  | Hours worked | All counted time, including class/meeting time and time before signing in |
+  | Target | Your weekly target split over workdays, minus any days off (e.g. 8h × 5 workdays) |
+  | Still needed | Hours left to reach the target, and about how much that is per remaining workday |
+  | Ahead or behind | Finished days only: hours worked compared with the target for those days |
+  | Days present | Workdays with any time recorded, and which workdays were missed |
+  | Average per day present | Over finished days, so today's partial hours don't lower it |
+  | On time | Days you arrived within 15 minutes of your start time |
+  | Left early | Days you left more than 15 minutes before your end time |
+  | Class / meeting time | Locked breaks that counted |
+  | Before signing in | Time between switching the PC on and signing in |
+  | Marked away | Time you removed with Mark away (not counted) |
+  | Weekend work | Days and hours worked on your weekend days |
+
+- **Things to know**: short notes, only when something needs attention:
+  - how many hours a day you need to reach this week's target
+  - a workday in the last two weeks with no time recorded, with a
+    **Mark as day off** button
+  - your last day worked in one line
+  - arriving late on most of your recent workdays
+  - a day over 10 hours
+- **Charts**:
+  - daily hours for the last 30 days
+  - weekly hours for the last 12 weeks against your target
+  - *When you work* (average minutes in each hour of the day)
+  - average hours by day of the week
+  - first-in / last-out times for recent days
+  - an activity calendar
+- **Session log**: grouped by day with each day's total. Pick a period
+  (this/last week, this/last month, last 30 days, all time). 14 days are
+  shown at a time, with **Show more** for older days. **Export** downloads
+  the selected period as a CSV for Excel.
+
+Light and dark mode follow your system; switch with the button in the top
+corner.
+
+---
+
+## Settings
+
+Open **Settings** at the top of the dashboard:
+
+| Setting | Default | What it does |
+|---|---|---|
+| Week starts on | Your region | Used for "this week", the weekly chart, the calendar and the log's week filters |
+| Weekend days | Your region | Any combination (e.g. Friday + Saturday). Every other day is a workday. Weekend days are never "missed" |
+| Weekly target | 40 hours | Split evenly over your workdays (40h ÷ 5 = 8h a day). Gives the monthly target, *Still needed* and *Ahead or behind*. `0` turns targets off |
+| Work hours | 9:00–17:00 | Used for *On time* and *Left early* (15 minutes leeway). Clear a field to turn that row off |
+| Locked PC counts up to | 4 hours | The cap for one locked break, and for the wait between switching on and signing in |
+
+Settings are saved in the browser you use for the dashboard.
+
+---
+
+## Corrections, days off and time away
+
+The session log lets you fix anything the automatic tracking got wrong:
+
+- **Edit** a session's start/end time and add a note
+- **Delete** a session that shouldn't count
+- **+ Add session** for time that was never logged (e.g. you worked
+  elsewhere, or the PC was on but you never signed in)
+- **− Mark away** to remove a time range (e.g. you went off campus but only
+  locked the PC)
+- **Day off** for leave, holidays or sick days. That day isn't counted as
+  missed, and the week's and month's targets are lowered to match. A
+  missed workday in *Things to know* also has a **Mark as day off** button.
+
+`heartbeat_log.csv` itself is **never changed**. Corrections are kept
+separately and applied on top:
+
+- **In Chrome or Edge** they're saved to `corrections.json` in your
+  UptimeLoom folder. That makes them durable (they survive clearing browser
+  data), portable (open the dashboard on another PC pointing at the same
+  folder) and readable in any text editor.
+- **In Firefox or other browsers** they're saved in that browser only.
 
 ---
 
@@ -257,62 +255,32 @@ Excel or anywhere else.
 
 Make sure you extracted the ZIP first (right-click → **Extract All…**).
 Running `Install.cmd` from inside the ZIP preview doesn't work, because the
-other files aren't there. If the window shows an error, it stays open until
-you press a key. The details are in
+other files aren't there. If the installer shows an error, its window
+stays open until you press a key, and the details are in
 `C:\Users\<you>\UptimeLoom\install-log.txt`.
 
 If your organisation blocks `.cmd` files or PowerShell completely (rare,
-but some locked-down PCs do), Uptime Loom can't run there without IT's help.
+but some locked-down PCs do), Uptime Loom can't run there without IT's
+help.
 
-### Dashboard shows "Not active" even though the PC is on
+### The dashboard looks out of date
 
-If you're in Chrome/Edge with live sync active, wait up to 15 seconds for
-the next automatic sync, or click **Sync now**. If you're on a browser
-without live sync (e.g. Firefox), click **Refresh** and re-select
-`heartbeat_log.csv` to pull the latest data.
+In Chrome/Edge, wait up to 15 seconds for the next sync, or click **Sync
+now**. In Firefox, drag the latest `heartbeat_log.csv` onto the page again
+or click **Refresh**.
 
-### No new heartbeats are being written / logging seems stuck
+### No new lines are being written / logging seems stuck
 
 Run `Install.cmd` again. It stops any stuck copy, starts a fresh one and
-tells you whether logging is working. To look at the log yourself:
+tells you whether logging is working. To look at the log yourself
+(Start menu → type *PowerShell* → Enter, then paste):
 
 ```powershell
 Get-Content "$env:USERPROFILE\UptimeLoom\heartbeat_log.csv" -Tail 5
 ```
 
-A new line should appear about once a minute. Logging can't happen while
-the PC itself is asleep, so gaps during sleep are expected.
-
-### Locked time isn't detected correctly
-
-Lock, wait 2 minutes, unlock, and look at the end of `heartbeat_log.csv`:
-the lines written while locked should end in `,locked`.
-
-- **No `,active` / `,locked` at the end of the lines at all?** An older
-  copy of the heartbeat script is still running. Run `Install.cmd` again.
-  It replaces the old copy straight away.
-- **Lines say `,active` while you were locked?** Run the built-in check:
-
-  ```powershell
-  & ([scriptblock]::Create((Get-Content "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1" -Raw))) -Diagnose
-  ```
-
-  (Paste it into a PowerShell window: Start menu → type *PowerShell* →
-  Enter.)
-
-  Press `Win+L` as soon as it starts, wait ~30 seconds, then unlock. The
-  window (and `lock_diagnose.txt` in your UptimeLoom folder) shows what each
-  detection method reported every 5 seconds — lines from while you were
-  locked should say `final=LOCKED`. If they don't, that file is exactly
-  what's needed to work out why.
-
-Lock detection asks Windows directly for your session's lock state
-(`WTSQuerySessionInformation`), falling back to checking for the sign-in
-screen (`LogonUI.exe`) if that's unavailable. It can still behave
-inconsistently over Remote Desktop or on some managed/corporate builds.
-If locking isn't detected, locked breaks are simply logged as active (so
-they still count), but the 4-hour cap, the "you have to come back" rule
-and the Going out shortcut can't work properly.
+A new line should appear about once a minute. Nothing can be written while
+the PC is asleep, so gaps during sleep are expected.
 
 ### Logging doesn't start after signing in
 
@@ -326,84 +294,140 @@ Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" -Filt
 If nothing is listed, run `Install.cmd` again. Also check that Uptime Loom
 isn't turned off under **Settings → Apps → Startup** in Windows.
 
+### Locked time or time before signing in isn't counted correctly
+
+First check the log. Lines written while the PC was locked should end in
+`,locked`, and after switching on and signing in later there should be a
+`,boot` line:
+
+```powershell
+Get-Content "$env:USERPROFILE\UptimeLoom\heartbeat_log.csv" -Tail 30
+```
+
+- **No `,active` / `,locked` at the end of the lines?** An older version is
+  still running. Run `Install.cmd` again.
+- **Lines say `,active` while you were locked, or there's no `,boot`
+  line?** Run the built-in check:
+
+  ```powershell
+  & ([scriptblock]::Create((Get-Content "$env:USERPROFILE\UptimeLoom\Heartbeat.ps1" -Raw))) -Diagnose
+  ```
+
+  It first prints **"Last switched on / woke up"**: when Windows says the
+  PC was last switched on. If it says *not found*, this PC doesn't let
+  normal users read that record, so time before signing in can't be
+  counted. Then press **Win+L**, wait ~30 seconds and unlock. Lines from
+  while you were locked should say `final=LOCKED`. Everything is also
+  saved to `lock_diagnose.txt` in your UptimeLoom folder. Send that file if
+  you need help.
+
+Lock detection asks Windows directly for your session's lock state, and
+falls back to checking for the sign-in screen if that isn't available. It
+can be unreliable over Remote Desktop or on some managed work PCs. If
+locking isn't detected, locked breaks are logged as active (so they still
+count), but the cap, the "you have to come back" rule and the Going out
+shortcut can't work properly.
+
+---
+
+## Files
+
+**In the download:**
+
+| File | What it is |
+|---|---|
+| `Install.cmd` | Double-click to install or update |
+| `Uninstall.cmd` | Double-click to remove (keeps your data) |
+| `SetupHeartbeat.ps1` | The installer/uninstaller logic, run by the two files above |
+| `Heartbeat.ps1` | The background logger |
+| `GoingOut.ps1` | Locks the PC and marks you as away (the *Going out* shortcut) |
+| `dashboard.html` | The dashboard; a single file that runs in your browser |
+
+**Created in `C:\Users\<you>\UptimeLoom`:**
+
+| File | What it is |
+|---|---|
+| `heartbeat_log.csv` | The raw log, one line a minute |
+| `corrections.json` | Your edits, added sessions, away times and days off (Chrome/Edge) |
+| `away.flag` | Exists only while you're marked as away |
+| `install-log.txt` | What the installer did, for troubleshooting |
+| `lock_diagnose.txt` | Output of the built-in check, if you ran it |
+
 ---
 
 ## Data format
 
-`heartbeat_log.csv` is a simple CSV:
+`heartbeat_log.csv`:
 
 ```
 Timestamp,State
-2026-08-16 09:03:12,active
-2026-08-16 09:04:12,active
+2026-08-16 07:52:40,boot
+2026-08-16 08:31:12,active
+2026-08-16 08:32:12,active
 2026-08-16 11:02:12,locked
 ...
 ```
 
-`State` is `active` (unlocked), `locked`, or `boot`: when the PC was
-switched on or woke up, written once you sign in. Logs from older versions have no
-state column; those lines are treated as `active`.
+- Times are local wall-clock time, always written as
+  `yyyy-MM-dd HH:mm:ss` whatever your regional settings.
+- `State` is one of:
+  - `active`: unlocked
+  - `locked`: locked
+  - `boot`: when the PC was switched on or woke up, written once you sign
+    in
+- Logs from older versions have no state column; those lines count as
+  `active`.
 
-The dashboard reconstructs sessions by finding gaps larger than 3 minutes
-between consecutive timestamps — a gap means the PC was off, asleep, or you
-used the Going out shortcut. Locked stretches inside a session count if
-they end with an unlock and are no longer than the cap. Timestamps are local wall-clock time. Daily totals are
-split at local midnight (a session from 11 PM to 1 AM counts one hour on
-each day), and overlapping sessions — e.g. a manual session that overlaps
-logged time — are only counted once. This format is intentionally simple so you can also
-open it in Excel or process it yourself (Python/pandas, etc.) if you want
-custom analysis.
+The format is deliberately simple, so you can also open it in Excel or
+analyse it yourself (Python/pandas, etc.).
 
-`corrections.json` (created automatically the first time you save a
-correction) is a plain array of correction objects:
+`corrections.json` is a plain list of corrections:
 
 ```json
 [
-  {
-    "type": "edit",
-    "rawId": "sess_1755320400000",
-    "start": "2026-08-16T09:00:00.000Z",
-    "end": "2026-08-16T17:30:00.000Z",
-    "note": "class from 1-2pm"
-  }
+  { "type": "edit", "rawId": "sess_1755320400000", "start": "2026-08-16T09:00:00.000Z", "end": "2026-08-16T17:30:00.000Z", "note": "class from 1-2pm" },
+  { "type": "add", "id": "manual_1755400000000", "start": "2026-08-17T09:00:00.000Z", "end": "2026-08-17T12:00:00.000Z", "note": "worked from library" },
+  { "type": "away", "id": "away_1755500000000", "start": "2026-08-18T13:00:00.000Z", "end": "2026-08-18T15:00:00.000Z", "note": "client visit" },
+  { "type": "dayoff", "id": "dayoff_2026-08-19", "date": "2026-08-19", "note": "annual leave" },
+  { "type": "delete", "rawId": "sess_1755580000000" }
 ]
 ```
 
-`type` is one of `edit`, `delete`, `add`, `away` (a time range
-subtracted from your totals), or `dayoff` (a whole day of leave/holiday,
-stored as `{"type":"dayoff","id":"dayoff_2026-11-17","date":"2026-11-17","note":"leave"}`). You generally shouldn't need
-to hand-edit this file, but it's plain and readable if you ever want to.
+You shouldn't need to edit it by hand, but it's readable if you want to.
 
 ---
 
 ## Privacy
 
-Everything stays local:
-- The heartbeat script only writes to a file on your own disk
-- The dashboard is a static HTML file — it makes no network requests
-- No telemetry, no accounts, no external services
+Everything stays on your PC:
+
+- The logger only writes to files in your own `UptimeLoom` folder.
+- To count time before you sign in, it reads the switch-on and wake-up
+  times from Windows' System event log on your own PC. Nothing else is
+  read, and nothing is sent anywhere.
+- The dashboard is a static HTML file that makes no network requests.
+- No telemetry, no accounts, no external services.
 
 ---
 
 ## Limitations
 
-- It can't know *where* you are: a locked PC looks the same whether you're
-  in class or off campus. Use the Going out shortcut (or **Mark away**
+- **It can't know where you are.** A locked PC looks the same whether you're
+  in class or off campus, so use **Going out** (or **Mark away**
   afterwards) for time that shouldn't count. If you lock the PC, go to
-  class and then leave directly without coming back, that class time isn't
-  counted automatically — add it with **+ Add session**
-- An idle-but-unlocked screen still counts as active
-- Lock-screen detection relies on a standard Windows API check that is
-  reliable on typical local sessions but can behave inconsistently over
-  Remote Desktop or certain managed/corporate Windows configurations — see
-  Troubleshooting if you suspect this
-- Timestamp resolution is ~1 minute, so session boundaries are accurate to
-  within about a minute, not to the second
-- Windows-only (uses PowerShell and the Windows Startup folder)
-- The dashboard is Windows-only in the sense that it's built around this
-  Windows-specific logging setup; the HTML file itself works in any
-  browser, but live auto-sync (File System Access API) is Chromium-only
-  (Chrome, Edge, Opera) — Firefox and Safari fall back to manual refresh
+  class and then leave without coming back, that class time isn't counted
+  automatically. Add it with **+ Add session**.
+- **You have to sign in at some point.** If you switch the PC on and never
+  sign in that day, nothing is recorded.
+- An unlocked but idle PC still counts as active.
+- Times are accurate to about a minute.
+- Lock detection and switch-on times come from Windows itself and can be
+  unreliable over Remote Desktop or on some managed work PCs. See
+  [Troubleshooting](#troubleshooting).
+- The logger is Windows-only. The dashboard works in any browser, but
+  automatic syncing and saving corrections to the folder need Chrome or
+  Edge.
+- Settings are saved per browser.
 
 ---
 
